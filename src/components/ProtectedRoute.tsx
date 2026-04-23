@@ -1,7 +1,8 @@
 import { ReactNode } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2 } from 'lucide-react';
+import { Loader2, LogOut } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 type AppRole = 'patient' | 'doctor' | 'admin';
 
@@ -12,8 +13,9 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles, requireVerified = false }: ProtectedRouteProps) {
-  const { user, userRole, isVerified, loading } = useAuth();
+  const { user, userRole, isVerified, loading, signOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   if (loading) {
     return (
@@ -37,6 +39,11 @@ export function ProtectedRoute({ children, allowedRoles, requireVerified = false
   }
 
   if (requireVerified && !isVerified) {
+    const handleSignOut = async () => {
+      await signOut();
+      navigate('/');
+    };
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="max-w-md text-center">
@@ -44,9 +51,17 @@ export function ProtectedRoute({ children, allowedRoles, requireVerified = false
             <span className="text-3xl">⏳</span>
           </div>
           <h2 className="text-2xl font-bold text-foreground mb-2">Account Pending Verification</h2>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mb-6">
             Your account is awaiting admin verification. You'll be notified once your account has been approved.
           </p>
+          <Button 
+            variant="outline" 
+            onClick={handleSignOut}
+            className="gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </Button>
         </div>
       </div>
     );

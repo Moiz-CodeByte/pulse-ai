@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Heart, Menu, X, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
 
@@ -39,7 +40,8 @@ export function Navbar() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-4">
+            <ThemeToggle />
             {!user ? (
               <>
                 <Link to="/#features" className="text-muted-foreground hover:text-foreground transition-colors">
@@ -88,6 +90,10 @@ export function Navbar() {
         {isMenuOpen && (
           <div className="md:hidden py-4 border-t border-border animate-fade-in">
             <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Theme</span>
+                <ThemeToggle />
+              </div>
               {!user ? (
                 <>
                   <Link to="/#features" className="text-muted-foreground hover:text-foreground transition-colors">
