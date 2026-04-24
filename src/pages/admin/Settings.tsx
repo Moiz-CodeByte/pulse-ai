@@ -7,10 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { Save, Bell, Shield, Database } from 'lucide-react';
+import { useTheme } from '@/hooks/useTheme';
+import { Save, Bell, Shield, Database, Moon, Sun, Monitor } from 'lucide-react';
 
 export default function Settings() {
   const { toast } = useToast();
+  const { theme, setTheme } = useTheme();
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -35,6 +37,53 @@ export default function Settings() {
         </div>
 
         <div className="grid gap-6">
+          {/* Appearance Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Moon className="h-5 w-5" />
+                Appearance
+              </CardTitle>
+              <CardDescription>
+                Customize the look and feel of the application
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Theme Preference</Label>
+                <div className="grid grid-cols-3 gap-3">
+                  <Button
+                    variant={theme === 'light' ? 'default' : 'outline'}
+                    className="gap-2"
+                    onClick={() => setTheme('light')}
+                  >
+                    <Sun className="h-4 w-4" />
+                    Light
+                  </Button>
+                  <Button
+                    variant={theme === 'dark' ? 'default' : 'outline'}
+                    className="gap-2"
+                    onClick={() => setTheme('dark')}
+                  >
+                    <Moon className="h-4 w-4" />
+                    Dark
+                  </Button>
+                  <Button
+                    variant={theme === 'system' ? 'default' : 'outline'}
+                    className="gap-2"
+                    onClick={() => setTheme('system')}
+                  >
+                    <Monitor className="h-4 w-4" />
+                    System
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Choose how Pulse AI looks to you. Select a single theme, or sync with your system and automatically switch.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* General Settings */}
           <Card>
             <CardHeader>
