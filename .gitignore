@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 Dataset
+notebooks/active/models
 dist-ssr
 *.local
 
