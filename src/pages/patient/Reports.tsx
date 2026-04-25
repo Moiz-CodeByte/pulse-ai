@@ -143,7 +143,7 @@ export default function PatientReports() {
                               {report.diagnosis.details && (
                                 <div>
                                   <span className="font-medium">Analysis Details</span>
-                                  <p className="mt-2 text-muted-foreground">{report.diagnosis.details}</p>
+                                  <p className="mt-2 whitespace-pre-line text-muted-foreground">{report.diagnosis.details}</p>
                                 </div>
                               )}
                             </div>
