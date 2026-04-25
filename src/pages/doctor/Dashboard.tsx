@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Users, FileText, Activity, CheckCircle } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Download, Users, FileText, Activity, CheckCircle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
 import { RiskBadge } from '@/components/ui/RiskBadge';
@@ -7,7 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
 import { Link } from 'react-router-dom';
+
+interface Diagnosis {
+  risk_level: 'low' | 'medium' | 'high';
+  confidence: number;
+  details: string | null;
+}
 
 interface AssignedCase {
   id: string;
@@ -15,13 +22,12 @@ interface AssignedCase {
   patient_id: string;
   assigned_at: string;
   mri_report?: {
+    id: string;
     file_name: string;
+    file_url: string;
     status: string;
     created_at: string;
-    diagnosis?: {
-      risk_level: 'low' | 'medium' | 'high';
-      confidence: number;
-    }[];
+    diagnosis?: Diagnosis;
   };
   patient_profile?: {
     full_name: string;
@@ -34,35 +40,117 @@ export default function DoctorDashboard() {
   const [cases, setCases] = useState<AssignedCase[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      fetchCases();
+  const fetchCases = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const { data: assignments, error: assignmentsError } = await supabase
+        .from('doctor_assignments')
+        .select('*')
+        .eq('doctor_id', user.id)
+        .order('assigned_at', { ascending: false })
+        .limit(10);
+
+      if (assignmentsError) {
+        throw assignmentsError;
+      }
+
+      if (!assignments?.length) {
+        setCases([]);
+        return;
+      }
+
+      const reportIds = [...new Set(assignments.map((assignment) => assignment.report_id))];
+      const patientIds = [...new Set(assignments.map((assignment) => assignment.patient_id))];
+
+      const [reportsResult, profilesResult] = await Promise.all([
+        supabase
+          .from('mri_reports')
+          .select(`
+            id,
+            file_name,
+            file_url,
+            status,
+            created_at,
+            diagnosis (
+              risk_level,
+              confidence,
+              details
+            )
+          `)
+          .in('id', reportIds),
+        supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', patientIds),
+      ]);
+
+      if (reportsResult.error) {
+        throw reportsResult.error;
+      }
+
+      if (profilesResult.error) {
+        throw profilesResult.error;
+      }
+
+      const reportMap = new Map(
+        (reportsResult.data ?? []).map((report) => [
+          report.id,
+          {
+            ...report,
+            diagnosis: normalizeSingleRelation(
+              report.diagnosis as Diagnosis | Diagnosis[] | null | undefined,
+            ),
+          },
+        ]),
+      );
+
+      const profileMap = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
+
+      setCases(
+        assignments.map((assignment) => ({
+          ...assignment,
+          mri_report: reportMap.get(assignment.report_id),
+          patient_profile: profileMap.get(assignment.patient_id),
+        })),
+      );
+    } catch (error) {
+      console.error('Failed to fetch doctor dashboard cases', error);
+      setCases([]);
+    } finally {
+      setLoading(false);
     }
   }, [user]);
 
-  const fetchCases = async () => {
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from('doctor_assignments')
-      .select(`
-        id,
-        report_id,
-        patient_id,
-        assigned_at
-      `)
-      .eq('doctor_id', user.id)
-      .order('assigned_at', { ascending: false })
-      .limit(10);
-
-    if (!error && data) {
-      setCases(data);
-    }
-    setLoading(false);
-  };
+  useEffect(() => {
+    void fetchCases();
+  }, [fetchCases]);
 
   const totalCases = cases.length;
-  const pendingCases = cases.filter(c => !c.mri_report?.diagnosis?.length).length;
+  const pendingCases = cases.filter(c => !c.mri_report?.diagnosis).length;
+
+  const handleDownloadCaseReport = async (caseItem: AssignedCase) => {
+    if (!caseItem.mri_report) {
+      return;
+    }
+
+    try {
+      await downloadMRIReportPdf({
+        reportId: caseItem.mri_report.id,
+        fileName: caseItem.mri_report.file_name,
+        fileReference: caseItem.mri_report.file_url,
+        createdAt: caseItem.mri_report.created_at,
+        status: caseItem.mri_report.status,
+        patientId: caseItem.patient_id,
+        patientName: caseItem.patient_profile?.full_name,
+        riskLevel: caseItem.mri_report.diagnosis?.risk_level,
+        confidence: caseItem.mri_report.diagnosis?.confidence,
+        details: caseItem.mri_report.diagnosis?.details,
+      });
+    } catch (error) {
+      console.error('Failed to download report PDF', error);
+    }
+  };
 
   return (
     <DashboardLayout 
@@ -137,12 +225,23 @@ export default function DoctorDashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    {caseItem.mri_report?.diagnosis?.[0] ? (
-                      <RiskBadge level={caseItem.mri_report.diagnosis[0].risk_level} size="sm" />
+                    {caseItem.mri_report?.diagnosis ? (
+                      <RiskBadge level={caseItem.mri_report.diagnosis.risk_level} size="sm" />
                     ) : (
                       <span className="text-sm text-warning">Pending Analysis</span>
                     )}
-                    <Button variant="outline" size="sm">Review</Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleDownloadCaseReport(caseItem)}
+                      disabled={!caseItem.mri_report}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      PDF
+                    </Button>
+                    <Link to="/doctor/cases">
+                      <Button variant="outline" size="sm">Review</Button>
+                    </Link>
                   </div>
                 </div>
               ))}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Eye, FileText, Loader2, Mail, Users } from 'lucide-react';
+import { Download, Eye, FileText, Loader2, Mail, Users } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { PrescriptionForm } from '@/components/doctor/PrescriptionForm';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { createMRISignedUrl, normalizeSingleRelation } from '@/lib/mriReports';
+import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
 
 interface Diagnosis {
   id: string;
@@ -156,6 +156,29 @@ export default function DoctorCases() {
     }
   };
 
+  const handleDownloadCaseReport = async (caseItem: Case) => {
+    if (!caseItem.mri_report) {
+      return;
+    }
+
+    try {
+      await downloadMRIReportPdf({
+        reportId: caseItem.mri_report.id,
+        fileName: caseItem.mri_report.file_name,
+        fileReference: caseItem.mri_report.file_url,
+        createdAt: caseItem.mri_report.created_at,
+        status: caseItem.mri_report.status,
+        patientId: caseItem.patient_id,
+        patientName: caseItem.patient_profile?.full_name,
+        riskLevel: caseItem.mri_report.diagnosis?.risk_level,
+        confidence: caseItem.mri_report.diagnosis?.confidence,
+        details: caseItem.mri_report.diagnosis?.details,
+      });
+    } catch (error) {
+      console.error('Failed to download case report PDF', error);
+    }
+  };
+
   return (
     <DashboardLayout 
       title="Patient Cases" 
@@ -195,6 +218,15 @@ export default function DoctorCases() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleDownloadCaseReport(caseItem)}
+                      disabled={!caseItem.mri_report}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      PDF
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => void openSelectedCase(caseItem)}>
                       <Eye className="h-4 w-4 mr-2" />
                       Review
@@ -215,9 +247,9 @@ export default function DoctorCases() {
 
           {selectedCase && (
             <div className="space-y-6 py-4">
-              <div className="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
+              <div className="grid gap-6 lg:grid-cols-[240px,1fr]">
                 <div className="space-y-4">
-                  <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+                  <div className="mx-auto flex min-h-44 w-full max-w-[240px] items-center justify-center rounded-xl border bg-muted/40 p-3">
                     {selectedCaseLoading ? (
                       <div className="flex h-full items-center justify-center text-muted-foreground">
                         <Loader2 className="h-6 w-6 animate-spin" />
@@ -226,7 +258,7 @@ export default function DoctorCases() {
                       <img
                         src={selectedCaseUrl}
                         alt={selectedCase.mri_report?.file_name || 'MRI Scan'}
-                        className="h-full w-full object-contain"
+                        className="max-h-48 w-auto max-w-full object-contain"
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
@@ -278,6 +310,17 @@ export default function DoctorCases() {
                 </div>
 
                 <div className="space-y-4">
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleDownloadCaseReport(selectedCase)}
+                      disabled={!selectedCase.mri_report}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download PDF
+                    </Button>
+                  </div>
                   <p className="text-muted-foreground">
                     Review the MRI scan and provide your prescription below.
                   </p>

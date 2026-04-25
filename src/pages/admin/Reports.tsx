@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Eye, FileText, Loader2, Search } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Download, Eye, FileText, Loader2, Search } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
-import { createMRISignedUrl, normalizeSingleRelation } from '@/lib/mriReports';
+import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
 
 interface Diagnosis {
   id: string;
@@ -35,11 +35,7 @@ export default function AdminReports() {
   const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
   const [selectedReportLoading, setSelectedReportLoading] = useState(false);
 
-  useEffect(() => {
-    fetchReports();
-  }, []);
-
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     const { data, error } = await supabase
       .from('mri_reports')
       .select(`
@@ -73,7 +69,11 @@ export default function AdminReports() {
       setReports(mappedReports);
     }
     setLoading(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchReports();
+  }, [fetchReports]);
 
   const closeSelectedReport = () => {
     setSelectedReport(null);
@@ -93,6 +93,24 @@ export default function AdminReports() {
       setSelectedReportUrl(null);
     } finally {
       setSelectedReportLoading(false);
+    }
+  };
+
+  const handleDownloadReport = async (report: Report) => {
+    try {
+      await downloadMRIReportPdf({
+        reportId: report.id,
+        fileName: report.file_name,
+        fileReference: report.file_url,
+        createdAt: report.created_at,
+        status: report.status,
+        patientId: report.patient_id,
+        riskLevel: report.diagnosis?.risk_level,
+        confidence: report.diagnosis?.confidence,
+        details: report.diagnosis?.details,
+      });
+    } catch (error) {
+      console.error('Failed to download report PDF', error);
     }
   };
 
@@ -162,12 +180,16 @@ export default function AdminReports() {
                     </div>
                     <div className="flex items-center gap-4">
                       {getStatusBadge(report.status)}
-                      {diagnosis && (
+                      {/* {diagnosis && (
                         <RiskBadge level={diagnosis.risk_level} size="sm" />
-                      )}
+                      )} */}
+                      <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(report)}>
+                        <Download className="h-4 w-4" />
+                        
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => void openSelectedReport(report)}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        View
+                        <Eye className="h-4 w-4" />
+                        
                       </Button>
                     </div>
                   </div>
@@ -185,8 +207,8 @@ export default function AdminReports() {
           </DialogHeader>
 
           {selectedReport && (
-            <div className="space-y-6 py-4">
-              <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+            <div className="grid gap-6 py-4 sm:grid-cols-[220px,1fr] sm:items-start">
+              <div className="mx-auto flex min-h-44 w-full max-w-[220px] items-center justify-center rounded-xl border bg-muted/40 p-3">
                 {selectedReportLoading ? (
                   <div className="flex h-full items-center justify-center text-muted-foreground">
                     <Loader2 className="h-6 w-6 animate-spin" />
@@ -195,7 +217,7 @@ export default function AdminReports() {
                   <img
                     src={selectedReportUrl}
                     alt={selectedReport.file_name}
-                    className="h-full w-full object-contain"
+                    className="max-h-48 w-auto max-w-full object-contain"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
@@ -205,6 +227,12 @@ export default function AdminReports() {
               </div>
 
               <div className="space-y-4">
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(selectedReport)}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </Button>
+                </div>
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Patient ID</span>
                   <span className="text-sm text-muted-foreground">{selectedReport.patient_id}</span>

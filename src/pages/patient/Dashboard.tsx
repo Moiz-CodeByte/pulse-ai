@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, Upload, Activity, AlertTriangle } from 'lucide-react';
+import { Download, FileText, Eye, Upload, Activity, AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
 import { RiskBadge } from '@/components/ui/RiskBadge';
@@ -7,17 +7,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { normalizeSingleRelation } from '@/lib/mriReports';
+import { downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
 import { Link } from 'react-router-dom';
 
 interface Diagnosis {
   risk_level: 'low' | 'medium' | 'high';
   confidence: number;
+  details: string | null;
 }
 
 interface Report {
   id: string;
   file_name: string;
+  file_url: string;
   status: string;
   created_at: string;
   diagnosis?: Diagnosis;
@@ -36,11 +38,13 @@ export default function PatientDashboard() {
       .select(`
         id,
         file_name,
+        file_url,
         status,
         created_at,
         diagnosis (
           risk_level,
-          confidence
+          confidence,
+          details
         )
       `)
       .eq('patient_id', user.id)
@@ -63,6 +67,23 @@ export default function PatientDashboard() {
   const totalReports = reports.length;
   const completedReports = reports.filter(r => r.status === 'completed').length;
   const highRiskCount = reports.filter(r => r.diagnosis?.risk_level === 'high').length;
+
+  const handleDownloadReport = async (report: Report) => {
+    try {
+      await downloadMRIReportPdf({
+        reportId: report.id,
+        fileName: report.file_name,
+        fileReference: report.file_url,
+        createdAt: report.created_at,
+        status: report.status,
+        riskLevel: report.diagnosis?.risk_level,
+        confidence: report.diagnosis?.confidence,
+        details: report.diagnosis?.details,
+      });
+    } catch (error) {
+      console.error('Failed to download report PDF', error);
+    }
+  };
 
   return (
     <DashboardLayout 
@@ -130,14 +151,17 @@ export default function PatientDashboard() {
                   <span className="text-muted-foreground">Risk Level</span>
                   <RiskBadge level={reports[0].diagnosis.risk_level} />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Confidence</span>
-                  <span className="font-semibold">{reports[0].diagnosis.confidence}%</span>
-                </div>
+               
                 <div className="pt-2">
-                  <Link to="/patient/reports">
-                    <Button variant="outline" className="w-full">View Full Report</Button>
-                  </Link>
+                  <div className="flex flex-row items-center gap-2">
+                    <Link to="/patient/reports">
+                      <Button variant="outline" className=""> <Eye className="h-4 w-4" />View Full Report</Button>
+                    </Link>
+                    <Button variant="outline" className="" onClick={() => void handleDownloadReport(reports[0])}>
+                      <Download className="h-4 w-4" />
+                      Download PDF
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -186,6 +210,10 @@ export default function PatientDashboard() {
                     ) : (
                       <span className="text-sm text-muted-foreground capitalize">{report.status}</span>
                     )}
+                    <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(report)}>
+                      <Download className="mr-2 h-4 w-4" />
+                      PDF
+                    </Button>
                   </div>
                 </div>
               ))}
