@@ -11,6 +11,7 @@ node_modules
 dist
 Dataset
 notebooks/active/models
+notebooks/archive/models
 dist-ssr
 *.local
 
