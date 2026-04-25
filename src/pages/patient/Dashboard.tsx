@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FileText, Upload, Activity, AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
@@ -7,17 +7,20 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { normalizeSingleRelation } from '@/lib/mriReports';
 import { Link } from 'react-router-dom';
+
+interface Diagnosis {
+  risk_level: 'low' | 'medium' | 'high';
+  confidence: number;
+}
 
 interface Report {
   id: string;
   file_name: string;
   status: string;
   created_at: string;
-  diagnosis?: {
-    risk_level: 'low' | 'medium' | 'high';
-    confidence: number;
-  };
+  diagnosis?: Diagnosis;
 }
 
 export default function PatientDashboard() {
@@ -25,13 +28,7 @@ export default function PatientDashboard() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      fetchReports();
-    }
-  }, [user]);
-
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     if (!user) return;
     
     const { data, error } = await supabase
@@ -53,11 +50,15 @@ export default function PatientDashboard() {
     if (!error && data) {
       setReports(data.map(r => ({
         ...r,
-        diagnosis: r.diagnosis?.[0] || undefined
+        diagnosis: normalizeSingleRelation(r.diagnosis as Diagnosis | Diagnosis[] | null | undefined)
       })));
     }
     setLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    void fetchReports();
+  }, [fetchReports]);
 
   const totalReports = reports.length;
   const completedReports = reports.filter(r => r.status === 'completed').length;

@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
-import { FileText, Eye } from 'lucide-react';
+import { FileText, Eye, Loader2 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { createMRISignedUrl, normalizeSingleRelation } from '@/lib/mriReports';
+
+interface Diagnosis {
+  risk_level: 'low' | 'medium' | 'high';
+  confidence: number;
+  details: string | null;
+}
 
 interface Report {
   id: string;
@@ -14,11 +21,7 @@ interface Report {
   file_url: string;
   status: string;
   created_at: string;
-  diagnosis?: {
-    risk_level: 'low' | 'medium' | 'high';
-    confidence: number;
-    details: string;
-  };
+  diagnosis?: Diagnosis;
 }
 
 export default function PatientReports() {
@@ -26,6 +29,8 @@ export default function PatientReports() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
+  const [selectedReportLoading, setSelectedReportLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -56,10 +61,31 @@ export default function PatientReports() {
     if (!error && data) {
       setReports(data.map(r => ({
         ...r,
-        diagnosis: r.diagnosis?.[0] || undefined
+        diagnosis: normalizeSingleRelation(r.diagnosis as Diagnosis | Diagnosis[] | null | undefined)
       })));
     }
     setLoading(false);
+  };
+
+  const closeSelectedReport = () => {
+    setSelectedReport(null);
+    setSelectedReportUrl(null);
+    setSelectedReportLoading(false);
+  };
+
+  const openSelectedReport = async (report: Report) => {
+    setSelectedReport(report);
+    setSelectedReportUrl(null);
+    setSelectedReportLoading(true);
+
+    try {
+      const signedUrl = await createMRISignedUrl(report.file_url);
+      setSelectedReportUrl(signedUrl);
+    } catch {
+      setSelectedReportUrl(null);
+    } finally {
+      setSelectedReportLoading(false);
+    }
   };
 
   return (
@@ -111,46 +137,10 @@ export default function PatientReports() {
                         {report.status}
                       </span>
                     )}
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-2xl">
-                        <DialogHeader>
-                          <DialogTitle>Report Details</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-6 py-4">
-                          <div className="aspect-video rounded-lg overflow-hidden bg-muted">
-                            <img 
-                              src={report.file_url} 
-                              alt="MRI Scan" 
-                              className="w-full h-full object-contain"
-                            />
-                          </div>
-                          {report.diagnosis && (
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium">Risk Assessment</span>
-                                <RiskBadge level={report.diagnosis.risk_level} size="lg" />
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium">Confidence Level</span>
-                                <span className="text-lg font-semibold">{report.diagnosis.confidence}%</span>
-                              </div>
-                              {report.diagnosis.details && (
-                                <div>
-                                  <span className="font-medium">Analysis Details</span>
-                                  <p className="mt-2 whitespace-pre-line text-muted-foreground">{report.diagnosis.details}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                    <Button variant="outline" size="sm" onClick={() => void openSelectedReport(report)}>
+                      <Eye className="h-4 w-4 mr-2" />
+                      View
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -158,6 +148,66 @@ export default function PatientReports() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedReport} onOpenChange={(open) => !open && closeSelectedReport()}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Report Details</DialogTitle>
+          </DialogHeader>
+
+          {selectedReport && (
+            <div className="space-y-6 py-4">
+              <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+                {selectedReportLoading ? (
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </div>
+                ) : selectedReportUrl ? (
+                  <img
+                    src={selectedReportUrl}
+                    alt={selectedReport.file_name}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                    The MRI image could not be loaded for this report.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Status</span>
+                  <span className="text-sm capitalize text-muted-foreground">{selectedReport.status}</span>
+                </div>
+
+                {selectedReport.diagnosis ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Risk Assessment</span>
+                      <RiskBadge level={selectedReport.diagnosis.risk_level} size="lg" />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Confidence Level</span>
+                      <span className="text-lg font-semibold">{selectedReport.diagnosis.confidence}%</span>
+                    </div>
+                    {selectedReport.diagnosis.details && (
+                      <div>
+                        <span className="font-medium">Analysis Details</span>
+                        <p className="mt-2 whitespace-pre-line text-muted-foreground">{selectedReport.diagnosis.details}</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Diagnosis details are not available for this report yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

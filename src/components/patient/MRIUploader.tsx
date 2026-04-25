@@ -84,17 +84,12 @@ export function MRIUploader({ onUploadComplete }: MRIUploaderProps) {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('mri-images')
-        .getPublicUrl(fileName);
-
       // Create MRI report record
       const { data: report, error: reportError } = await supabase
         .from('mri_reports')
         .insert({
           patient_id: user.id,
-          file_url: publicUrl,
+          file_url: fileName,
           file_name: file.name,
           status: 'processing',
         })

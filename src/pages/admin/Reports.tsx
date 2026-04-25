@@ -1,28 +1,39 @@
 import { useEffect, useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import { Eye, FileText, Loader2, Search } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { createMRISignedUrl, normalizeSingleRelation } from '@/lib/mriReports';
+
+interface Diagnosis {
+  id: string;
+  risk_level: 'low' | 'medium' | 'high';
+  confidence: number;
+  details: string | null;
+}
 
 interface Report {
   id: string;
   file_name: string;
+  file_url: string;
   status: string;
   created_at: string;
   patient_id: string;
-  diagnosis?: Array<{
-    risk_level: 'low' | 'medium' | 'high';
-    confidence: number;
-  }>;
+  diagnosis?: Diagnosis;
 }
 
 export default function AdminReports() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
+  const [selectedReportLoading, setSelectedReportLoading] = useState(false);
 
   useEffect(() => {
     fetchReports();
@@ -34,33 +45,55 @@ export default function AdminReports() {
       .select(`
         id,
         file_name,
+        file_url,
         status,
         created_at,
         patient_id,
         diagnosis (
+          id,
           risk_level,
-          confidence
+          confidence,
+          details
         )
       `)
       .order('created_at', { ascending: false });
 
     if (!error && data) {
-      // Map the data to match our interface
       const mappedReports: Report[] = data.map(item => {
-        const diagnosisData = item.diagnosis as unknown;
-        const diagnosisArray = Array.isArray(diagnosisData) ? diagnosisData : diagnosisData ? [diagnosisData] : undefined;
         return {
           id: item.id,
           file_name: item.file_name,
+          file_url: item.file_url,
           status: item.status || 'pending',
           created_at: item.created_at,
           patient_id: item.patient_id,
-          diagnosis: diagnosisArray as Report['diagnosis'],
+          diagnosis: normalizeSingleRelation(item.diagnosis as Diagnosis | Diagnosis[] | null | undefined),
         };
       });
       setReports(mappedReports);
     }
     setLoading(false);
+  };
+
+  const closeSelectedReport = () => {
+    setSelectedReport(null);
+    setSelectedReportUrl(null);
+    setSelectedReportLoading(false);
+  };
+
+  const openSelectedReport = async (report: Report) => {
+    setSelectedReport(report);
+    setSelectedReportUrl(null);
+    setSelectedReportLoading(true);
+
+    try {
+      const signedUrl = await createMRISignedUrl(report.file_url);
+      setSelectedReportUrl(signedUrl);
+    } catch {
+      setSelectedReportUrl(null);
+    } finally {
+      setSelectedReportLoading(false);
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -110,7 +143,7 @@ export default function AdminReports() {
           ) : (
             <div className="space-y-3">
               {filteredReports.map((report) => {
-                const diagnosis = report.diagnosis?.[0];
+                const diagnosis = report.diagnosis;
                 return (
                   <div
                     key={report.id}
@@ -132,6 +165,10 @@ export default function AdminReports() {
                       {diagnosis && (
                         <RiskBadge level={diagnosis.risk_level} size="sm" />
                       )}
+                      <Button variant="outline" size="sm" onClick={() => void openSelectedReport(report)}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View
+                      </Button>
                     </div>
                   </div>
                 );
@@ -140,6 +177,70 @@ export default function AdminReports() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedReport} onOpenChange={(open) => !open && closeSelectedReport()}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Report Details</DialogTitle>
+          </DialogHeader>
+
+          {selectedReport && (
+            <div className="space-y-6 py-4">
+              <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+                {selectedReportLoading ? (
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </div>
+                ) : selectedReportUrl ? (
+                  <img
+                    src={selectedReportUrl}
+                    alt={selectedReport.file_name}
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                    The MRI image could not be loaded for this report.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Patient ID</span>
+                  <span className="text-sm text-muted-foreground">{selectedReport.patient_id}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Status</span>
+                  {getStatusBadge(selectedReport.status)}
+                </div>
+
+                {selectedReport.diagnosis ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Risk Assessment</span>
+                      <RiskBadge level={selectedReport.diagnosis.risk_level} size="lg" />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Confidence Level</span>
+                      <span className="text-lg font-semibold">{selectedReport.diagnosis.confidence}%</span>
+                    </div>
+                    {selectedReport.diagnosis.details && (
+                      <div>
+                        <span className="font-medium">Analysis Details</span>
+                        <p className="mt-2 whitespace-pre-line text-muted-foreground">{selectedReport.diagnosis.details}</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Diagnosis details are not available for this report yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
