@@ -129,8 +129,8 @@ export default function AdminDashboard() {
         <Card>
           <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Recent Users</CardTitle>
-            <Link to="/admin/users">
-              <Button variant="outline" size="sm">View All</Button>
+            <Link to="/admin/users" className="w-full sm:w-auto">
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">View All</Button>
             </Link>
           </CardHeader>
           <CardContent>
@@ -144,10 +144,10 @@ export default function AdminDashboard() {
                     className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border bg-card"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium">{user.full_name}</p>
+                      <p className="font-medium truncate" title={user.full_name}>{user.full_name}</p>
                       <p className="text-sm text-muted-foreground break-all">{user.email}</p>
                     </div>
-                    <Badge variant="outline">
+                    <Badge variant="outline" className="self-start sm:self-auto">
                       {user.user_role?.role || 'patient'}
                     </Badge>
                   </div>
@@ -164,8 +164,8 @@ export default function AdminDashboard() {
               <Shield className="h-5 w-5 text-warning" />
               Doctor Verifications
             </CardTitle>
-            <Link to="/admin/verify-doctors">
-              <Button variant="outline" size="sm">Manage</Button>
+            <Link to="/admin/verify-doctors" className="w-full sm:w-auto">
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">Manage</Button>
             </Link>
           </CardHeader>
           <CardContent>

@@ -1,7 +1,8 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Heart, LayoutDashboard, Upload, FileText, Users, UserCheck, Settings, Stethoscope, ClipboardList, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LayoutDashboard, Upload, FileText, Users, UserCheck, Settings, Stethoscope, ClipboardList, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import { AppLogo } from '@/components/ui/AppLogo';
 
 interface NavItem {
   title: string;
@@ -115,7 +116,7 @@ export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSid
           )}
           aria-label="Pulse AI Home"
         >
-          <Heart className="h-4 w-4 text-primary" />
+          <AppLogo className="h-4 w-4" />
           {!isCollapsed && <span className="text-sm">Pulse AI</span>}
         </Link>
       </div>

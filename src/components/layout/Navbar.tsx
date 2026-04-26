@@ -1,9 +1,10 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Heart, Menu, X, LogOut, User } from 'lucide-react';
+import { Menu, X, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useState } from 'react';
+import { AppLogo } from '@/components/ui/AppLogo';
 
 export function Navbar() {
   const { user, userRole, signOut } = useAuth();
@@ -57,7 +58,7 @@ export function Navbar() {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group min-w-0">
             <div className="relative">
-              <Heart className="h-7 w-7 sm:h-8 sm:w-8 text-primary animate-heartbeat" />
+              <AppLogo className="h-7 w-7 sm:h-8 sm:w-8 animate-heartbeat" />
               <div className="absolute inset-0 bg-primary/20 blur-lg rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <span className="text-lg sm:text-xl font-display font-bold text-primary truncate">

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
+import { AppLogo } from '@/components/ui/AppLogo';
 
 type AppRole = 'patient' | 'doctor' | 'admin';
 
@@ -126,7 +127,7 @@ export default function Auth() {
 
           {/* Logo */}
           <div className="flex items-center gap-2 mb-8">
-            <Heart className="h-8 w-8 text-primary animate-heartbeat" />
+            <AppLogo className="animate-heartbeat" />
             <span className="text-2xl font-display font-bold text-primary">Pulse AI</span>
           </div>
 
@@ -270,8 +271,7 @@ export default function Auth() {
         </div>
         
         <div className="relative z-10 text-center text-primary-foreground">
-          <Heart className="h-24 w-24 mx-auto mb-8 animate-heartbeat" />
-          <h2 className="text-3xl font-display font-bold mb-4">
+          <Heart className="h-24 w-24 mx-auto mb-8 animate-heartbeat" />          <h2 className="text-3xl font-display font-bold mb-4">
             Your Heart Health Partner
           </h2>
           <p className="text-lg opacity-90 max-w-md">

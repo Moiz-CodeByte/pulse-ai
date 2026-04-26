@@ -1,9 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, Activity, Shield, Zap, Users, ArrowRight, CheckCircle } from 'lucide-react';
+import { Activity, Shield, Zap, Users, ArrowRight, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect } from 'react';
+import { AppLogo } from '@/components/ui/AppLogo';
 
 const features = [
   {
@@ -62,7 +63,7 @@ export default function Landing() {
           <div className="max-w-4xl mx-auto text-center">
             {/* Badge */}
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6 animate-fade-in">
-              <Heart className="h-4 w-4 text-primary animate-heartbeat" />
+              <AppLogo className="h-4 w-4 animate-heartbeat" />
               <span className="text-sm font-medium text-primary">AI-Powered Cardiac Care</span>
             </div>
 
@@ -190,7 +191,7 @@ export default function Landing() {
       <section className="py-16 lg:py-24">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center p-8 sm:p-12 rounded-2xl bg-gradient-primary text-primary-foreground">
-            <Heart className="h-12 w-12 mx-auto mb-4 animate-heartbeat" />
+            <AppLogo className="h-12 w-12 mx-auto mb-4 text-primary-foreground animate-heartbeat" />
             <h2 className="text-2xl sm:text-3xl font-display font-bold mb-4">
               Take Control of Your Heart Health Today
             </h2>
@@ -212,7 +213,7 @@ export default function Landing() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <Heart className="h-5 w-5 text-primary" />
+              <AppLogo className="h-5 w-5" />
               <span className="font-display font-semibold text-foreground">Pulse AI</span>
             </div>
             <p className="text-sm text-muted-foreground">

@@ -194,8 +194,8 @@ export default function DoctorDashboard() {
       <Card>
         <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Recent Cases</CardTitle>
-          <Link to="/doctor/cases">
-            <Button variant="outline" size="sm">View All Cases</Button>
+          <Link to="/doctor/cases" className="w-full sm:w-auto">
+            <Button variant="outline" size="sm" className="w-full sm:w-auto">View All Cases</Button>
           </Link>
         </CardHeader>
         <CardContent>
@@ -216,12 +216,12 @@ export default function DoctorDashboard() {
                   key={caseItem.id}
                   className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
                     <div className="p-2 rounded-full bg-primary/10">
                       <Users className="h-5 w-5 text-primary" />
                     </div>
-                    <div>
-                      <p className="font-medium">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate max-w-[180px] sm:max-w-[260px]" title={caseItem.patient_profile?.full_name || 'Patient'}>
                         {caseItem.patient_profile?.full_name || 'Patient'}
                       </p>
                       <p className="text-sm text-muted-foreground">
@@ -238,14 +238,17 @@ export default function DoctorDashboard() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-3"
+                      aria-label="Download case report PDF"
+                      title="Download case report PDF"
                       onClick={() => void handleDownloadCaseReport(caseItem)}
                       disabled={!caseItem.mri_report || !canRunCaseReportAction(caseItem, 'download')}
                     >
                       <Download className="mr-2 h-4 w-4" />
-                      PDF
+                      <span className="hidden sm:inline">PDF</span>
                     </Button>
                     <Link to="/doctor/cases">
-                      <Button variant="outline" size="sm">Review</Button>
+                      <Button variant="outline" size="sm" className="h-9 px-3">Review</Button>
                     </Link>
                   </div>
                 </div>

@@ -145,9 +145,9 @@ export default function PatientReports() {
                 return (
                 <div
                   key={report.id}
-                  className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                  className="flex flex-col gap-3 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
                     <div className="p-3 rounded-lg bg-primary/10">
                       <FileText className="h-6 w-6 text-primary" />
                     </div>
@@ -158,7 +158,7 @@ export default function PatientReports() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-4">
                     {report.diagnosis ? (
                       <>
                         <RiskBadge level={report.diagnosis.risk_level} />
@@ -171,14 +171,30 @@ export default function PatientReports() {
                         {report.status}
                       </span>
                     )}
-                    <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(report)} disabled={!canDownload}>
+                    <div className="ml-auto flex items-center gap-2 sm:ml-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      aria-label="Download report PDF"
+                      title="Download report PDF"
+                      onClick={() => void handleDownloadReport(report)}
+                      disabled={!canDownload}
+                    >
                       <Download className="h-4 w-4" />
-                      
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => void openSelectedReport(report)} disabled={!canView}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      aria-label="View report details"
+                      title="View report details"
+                      onClick={() => void openSelectedReport(report)}
+                      disabled={!canView}
+                    >
                       <Eye className="h-4 w-4" />
-                      
                     </Button>
+                    </div>
                   </div>
                 </div>
                 );
