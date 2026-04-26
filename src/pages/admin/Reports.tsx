@@ -1,33 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Download, Eye, FileText, Loader2, Search } from 'lucide-react';
+import { Download, Eye, FileText, Search } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ReportDiagnosisDetails } from '@/components/reports/ReportDiagnosisDetails';
+import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
+import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
+import { canUseReportAction } from '@/lib/reportPermissions';
 
-interface Diagnosis {
-  id: string;
-  risk_level: 'low' | 'medium' | 'high';
-  confidence: number;
-  details: string | null;
-}
-
-interface Report {
-  id: string;
-  file_name: string;
-  file_url: string;
-  status: string;
-  created_at: string;
+interface Report extends BaseReportRecord {
   patient_id: string;
-  diagnosis?: Diagnosis;
+  diagnosis?: BaseReportDiagnosis;
 }
 
 export default function AdminReports() {
+  const { user, userRole, isVerified } = useAuth();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -63,7 +56,9 @@ export default function AdminReports() {
           status: item.status || 'pending',
           created_at: item.created_at,
           patient_id: item.patient_id,
-          diagnosis: normalizeSingleRelation(item.diagnosis as Diagnosis | Diagnosis[] | null | undefined),
+          diagnosis: normalizeSingleRelation(
+            item.diagnosis as BaseReportDiagnosis | BaseReportDiagnosis[] | null | undefined,
+          ),
         };
       });
       setReports(mappedReports);
@@ -81,7 +76,21 @@ export default function AdminReports() {
     setSelectedReportLoading(false);
   };
 
+  const canRunReportAction = (report: Report, action: 'view' | 'download') => {
+    return canUseReportAction({
+      action,
+      role: userRole,
+      isVerified,
+      currentUserId: user?.id,
+      reportPatientId: report.patient_id,
+    });
+  };
+
   const openSelectedReport = async (report: Report) => {
+    if (!canRunReportAction(report, 'view')) {
+      return;
+    }
+
     setSelectedReport(report);
     setSelectedReportUrl(null);
     setSelectedReportLoading(true);
@@ -97,6 +106,10 @@ export default function AdminReports() {
   };
 
   const handleDownloadReport = async (report: Report) => {
+    if (!canRunReportAction(report, 'download')) {
+      return;
+    }
+
     try {
       await downloadMRIReportPdf({
         reportId: report.id,
@@ -161,7 +174,9 @@ export default function AdminReports() {
           ) : (
             <div className="space-y-3">
               {filteredReports.map((report) => {
-                const diagnosis = report.diagnosis;
+                const canDownload = canRunReportAction(report, 'download');
+                const canView = canRunReportAction(report, 'view');
+
                 return (
                   <div
                     key={report.id}
@@ -171,8 +186,8 @@ export default function AdminReports() {
                       <div className="p-2 rounded-lg bg-primary/10">
                         <FileText className="h-5 w-5 text-primary" />
                       </div>
-                      <div>
-                        <p className="font-medium">{report.file_name}</p>
+                      <div className="min-w-0">
+                        <p className="font-medium truncate max-w-[170px] sm:max-w-[280px]" title={report.file_name}>{report.file_name}</p>
                         <p className="text-sm text-muted-foreground">
                           ID: {report.id.slice(0, 8)}... • {new Date(report.created_at).toLocaleDateString()}
                         </p>
@@ -180,14 +195,11 @@ export default function AdminReports() {
                     </div>
                     <div className="flex items-center gap-4">
                       {getStatusBadge(report.status)}
-                      {/* {diagnosis && (
-                        <RiskBadge level={diagnosis.risk_level} size="sm" />
-                      )} */}
-                      <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(report)}>
+                      <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(report)} disabled={!canDownload}>
                         <Download className="h-4 w-4" />
                         
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => void openSelectedReport(report)}>
+                      <Button variant="outline" size="sm" onClick={() => void openSelectedReport(report)} disabled={!canView}>
                         <Eye className="h-4 w-4" />
                         
                       </Button>
@@ -208,23 +220,12 @@ export default function AdminReports() {
 
           {selectedReport && (
             <div className="grid gap-6 py-4 sm:grid-cols-[220px,1fr] sm:items-start">
-              <div className="mx-auto flex min-h-44 w-full max-w-[220px] items-center justify-center rounded-xl border bg-muted/40 p-3">
-                {selectedReportLoading ? (
-                  <div className="flex h-full items-center justify-center text-muted-foreground">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                  </div>
-                ) : selectedReportUrl ? (
-                  <img
-                    src={selectedReportUrl}
-                    alt={selectedReport.file_name}
-                    className="max-h-48 w-auto max-w-full object-contain"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                    The MRI image could not be loaded for this report.
-                  </div>
-                )}
-              </div>
+              <ReportImagePreview
+                loading={selectedReportLoading}
+                imageUrl={selectedReportUrl}
+                alt={selectedReport.file_name}
+                fallbackText="The MRI image could not be loaded for this report."
+              />
 
               <div className="space-y-4">
                 <div className="flex justify-end">
@@ -242,28 +243,7 @@ export default function AdminReports() {
                   {getStatusBadge(selectedReport.status)}
                 </div>
 
-                {selectedReport.diagnosis ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">Risk Assessment</span>
-                      <RiskBadge level={selectedReport.diagnosis.risk_level} size="lg" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">Confidence Level</span>
-                      <span className="text-lg font-semibold">{selectedReport.diagnosis.confidence}%</span>
-                    </div>
-                    {selectedReport.diagnosis.details && (
-                      <div>
-                        <span className="font-medium">Analysis Details</span>
-                        <p className="mt-2 whitespace-pre-line text-muted-foreground">{selectedReport.diagnosis.details}</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Diagnosis details are not available for this report yet.
-                  </p>
-                )}
+                <ReportDiagnosisDetails diagnosis={selectedReport.diagnosis} />
               </div>
             </div>
           )}

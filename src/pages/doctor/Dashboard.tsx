@@ -1,34 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Users, FileText, Activity, CheckCircle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
 import { RiskBadge } from '@/components/ui/RiskBadge';
+import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
+import { canUseReportAction } from '@/lib/reportPermissions';
 import { Link } from 'react-router-dom';
-
-interface Diagnosis {
-  risk_level: 'low' | 'medium' | 'high';
-  confidence: number;
-  details: string | null;
-}
 
 interface AssignedCase {
   id: string;
   report_id: string;
   patient_id: string;
   assigned_at: string;
-  mri_report?: {
-    id: string;
-    file_name: string;
-    file_url: string;
-    status: string;
-    created_at: string;
-    diagnosis?: Diagnosis;
-  };
+  mri_report?: BaseReportRecord & { diagnosis?: BaseReportDiagnosis };
   patient_profile?: {
     full_name: string;
     email: string;
@@ -36,9 +25,14 @@ interface AssignedCase {
 }
 
 export default function DoctorDashboard() {
-  const { user } = useAuth();
+  const { user, userRole, isVerified } = useAuth();
   const [cases, setCases] = useState<AssignedCase[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const assignedPatientIds = useMemo(
+    () => [...new Set(cases.map((caseItem) => caseItem.patient_id))],
+    [cases],
+  );
 
   const fetchCases = useCallback(async () => {
     if (!user) return;
@@ -99,7 +93,7 @@ export default function DoctorDashboard() {
           {
             ...report,
             diagnosis: normalizeSingleRelation(
-              report.diagnosis as Diagnosis | Diagnosis[] | null | undefined,
+              report.diagnosis as BaseReportDiagnosis | BaseReportDiagnosis[] | null | undefined,
             ),
           },
         ]),
@@ -129,8 +123,19 @@ export default function DoctorDashboard() {
   const totalCases = cases.length;
   const pendingCases = cases.filter(c => !c.mri_report?.diagnosis).length;
 
+  const canRunCaseReportAction = (caseItem: AssignedCase, action: 'download' | 'view') => {
+    return canUseReportAction({
+      action,
+      role: userRole,
+      isVerified,
+      currentUserId: user?.id,
+      reportPatientId: caseItem.patient_id,
+      assignedPatientIds,
+    });
+  };
+
   const handleDownloadCaseReport = async (caseItem: AssignedCase) => {
-    if (!caseItem.mri_report) {
+    if (!caseItem.mri_report || !canRunCaseReportAction(caseItem, 'download')) {
       return;
     }
 
@@ -187,7 +192,7 @@ export default function DoctorDashboard() {
 
       {/* Cases List */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Recent Cases</CardTitle>
           <Link to="/doctor/cases">
             <Button variant="outline" size="sm">View All Cases</Button>
@@ -209,7 +214,7 @@ export default function DoctorDashboard() {
               {cases.map((caseItem) => (
                 <div
                   key={caseItem.id}
-                  className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex items-center gap-4">
                     <div className="p-2 rounded-full bg-primary/10">
@@ -224,7 +229,7 @@ export default function DoctorDashboard() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex w-full sm:w-auto flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-4">
                     {caseItem.mri_report?.diagnosis ? (
                       <RiskBadge level={caseItem.mri_report.diagnosis.risk_level} size="sm" />
                     ) : (
@@ -234,7 +239,7 @@ export default function DoctorDashboard() {
                       variant="outline"
                       size="sm"
                       onClick={() => void handleDownloadCaseReport(caseItem)}
-                      disabled={!caseItem.mri_report}
+                      disabled={!caseItem.mri_report || !canRunCaseReportAction(caseItem, 'download')}
                     >
                       <Download className="mr-2 h-4 w-4" />
                       PDF

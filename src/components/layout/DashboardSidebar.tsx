@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Heart, LayoutDashboard, Upload, FileText, Users, UserCheck, Settings, Stethoscope, ClipboardList } from 'lucide-react';
+import { Heart, LayoutDashboard, Upload, FileText, Users, UserCheck, Settings, Stethoscope, ClipboardList, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
@@ -9,7 +9,12 @@ interface NavItem {
   icon: React.ElementType;
 }
 
-export function DashboardSidebar() {
+interface DashboardSidebarProps {
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSidebarProps) {
   const { userRole } = useAuth();
   const location = useLocation();
 
@@ -44,15 +49,34 @@ export function DashboardSidebar() {
   const navItems = getNavItems();
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-64 bg-sidebar border-r border-sidebar-border pt-16 hidden lg:block">
+    <aside
+      className={cn(
+        'fixed left-0 top-0 bottom-0 bg-sidebar border-r border-sidebar-border pt-24 z-40 transition-all duration-300',
+        isCollapsed ? 'w-20' : 'w-64',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        className="absolute -right-3 top-20 inline-flex h-12 w-12 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm transition-colors hover:bg-sidebar-accent"
+        aria-label={isCollapsed ? 'Open sidebar' : 'Close sidebar'}
+        title={isCollapsed ? 'Open sidebar' : 'Close sidebar'}
+      >
+        {isCollapsed ? <PanelLeftOpen className="h-6 w-6" /> : <PanelLeftClose className="h-6 w-6" />}
+      </button>
+
       <div className="p-4">
+        <div className="mb-4" />
+
         {/* Role Badge */}
-        <div className="mb-6 p-3 bg-sidebar-accent rounded-lg">
-          <div className="flex items-center gap-2">
+        <div className={cn('mb-6 p-3 bg-sidebar-accent rounded-lg', isCollapsed && 'px-0')}>
+          <div className={cn('flex items-center gap-2', isCollapsed && 'justify-center')}>
             <Stethoscope className="h-5 w-5 text-sidebar-primary" />
-            <span className="text-sm font-medium text-sidebar-foreground capitalize">
-              {userRole} Account
-            </span>
+            {!isCollapsed && (
+              <span className="text-sm font-medium text-sidebar-foreground capitalize">
+                {userRole} Account
+              </span>
+            )}
           </div>
         </div>
 
@@ -64,15 +88,17 @@ export function DashboardSidebar() {
               <Link
                 key={item.href}
                 to={item.href}
+                aria-label={item.title}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                  'flex items-center rounded-lg text-sm font-medium transition-all duration-200',
+                  isCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
                   isActive
                     ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
               >
-                <item.icon className="h-4 w-4" />
-                {item.title}
+                <item.icon className="h-4 w-4 shrink-0" />
+                {!isCollapsed && <span className="truncate">{item.title}</span>}
               </Link>
             );
           })}
@@ -80,10 +106,17 @@ export function DashboardSidebar() {
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-4 left-4 right-4">
-        <Link to="/" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+      <div className={cn('absolute bottom-4 left-4 right-4', isCollapsed && 'left-2 right-2')}>
+        <Link
+          to="/"
+          className={cn(
+            'flex items-center text-muted-foreground hover:text-foreground transition-colors',
+            isCollapsed ? 'justify-center' : 'gap-2',
+          )}
+          aria-label="Pulse AI Home"
+        >
           <Heart className="h-4 w-4 text-primary" />
-          <span className="text-sm">Pulse AI</span>
+          {!isCollapsed && <span className="text-sm">Pulse AI</span>}
         </Link>
       </div>
     </aside>

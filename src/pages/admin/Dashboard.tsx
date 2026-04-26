@@ -127,7 +127,7 @@ export default function AdminDashboard() {
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Recent Users */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Recent Users</CardTitle>
             <Link to="/admin/users">
               <Button variant="outline" size="sm">View All</Button>
@@ -141,11 +141,11 @@ export default function AdminDashboard() {
                 {users.slice(0, 5).map((user) => (
                   <div
                     key={user.id}
-                    className="flex items-center justify-between p-3 rounded-lg border bg-card"
+                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border bg-card"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium">{user.full_name}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+                      <p className="text-sm text-muted-foreground break-all">{user.email}</p>
                     </div>
                     <Badge variant="outline">
                       {user.user_role?.role || 'patient'}
@@ -159,7 +159,7 @@ export default function AdminDashboard() {
 
         {/* Pending Verifications */}
         <Card className={stats.pendingVerifications > 0 ? 'border-warning/30' : ''}>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-warning" />
               Doctor Verifications

@@ -1,29 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Download, Eye, FileText, Loader2, Mail, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Download, Eye, FileText, Mail, Users } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ReportDiagnosisDetails } from '@/components/reports/ReportDiagnosisDetails';
+import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
+import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { PrescriptionForm } from '@/components/doctor/PrescriptionForm';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
+import { canUseReportAction } from '@/lib/reportPermissions';
 
-interface Diagnosis {
-  id: string;
-  risk_level: 'low' | 'medium' | 'high';
-  confidence: number;
-  details: string | null;
-}
-
-interface MRIReport {
-  id: string;
-  file_name: string;
-  file_url: string;
-  status: string;
-  created_at: string;
-  diagnosis?: Diagnosis;
+interface MRIReport extends BaseReportRecord {
+  diagnosis?: BaseReportDiagnosis & { id: string };
 }
 
 interface PatientProfile {
@@ -42,12 +33,17 @@ interface Case {
 }
 
 export default function DoctorCases() {
-  const { user } = useAuth();
+  const { user, userRole, isVerified } = useAuth();
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [selectedCaseUrl, setSelectedCaseUrl] = useState<string | null>(null);
   const [selectedCaseLoading, setSelectedCaseLoading] = useState(false);
+
+  const assignedPatientIds = useMemo(
+    () => [...new Set(cases.map((caseItem) => caseItem.patient_id))],
+    [cases],
+  );
 
   const fetchCases = useCallback(async () => {
     if (!user) return;
@@ -108,7 +104,7 @@ export default function DoctorCases() {
           {
             ...report,
             diagnosis: normalizeSingleRelation(
-              report.diagnosis as Diagnosis | Diagnosis[] | null | undefined,
+              report.diagnosis as BaseReportDiagnosis | BaseReportDiagnosis[] | null | undefined,
             ),
           } satisfies MRIReport,
         ]),
@@ -141,7 +137,22 @@ export default function DoctorCases() {
     setSelectedCaseLoading(false);
   };
 
+  const canRunCaseReportAction = (caseItem: Case, action: 'view' | 'download') => {
+    return canUseReportAction({
+      action,
+      role: userRole,
+      isVerified,
+      currentUserId: user?.id,
+      reportPatientId: caseItem.patient_id,
+      assignedPatientIds,
+    });
+  };
+
   const openSelectedCase = async (caseItem: Case) => {
+    if (!canRunCaseReportAction(caseItem, 'view')) {
+      return;
+    }
+
     setSelectedCase(caseItem);
     setSelectedCaseUrl(null);
     setSelectedCaseLoading(true);
@@ -157,7 +168,7 @@ export default function DoctorCases() {
   };
 
   const handleDownloadCaseReport = async (caseItem: Case) => {
-    if (!caseItem.mri_report) {
+    if (!caseItem.mri_report || !canRunCaseReportAction(caseItem, 'download')) {
       return;
     }
 
@@ -201,7 +212,11 @@ export default function DoctorCases() {
             </div>
           ) : (
             <div className="space-y-4">
-              {cases.map((caseItem) => (
+              {cases.map((caseItem) => {
+                const canDownload = canRunCaseReportAction(caseItem, 'download');
+                const canView = canRunCaseReportAction(caseItem, 'view');
+
+                return (
                 <div
                   key={caseItem.id}
                   className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
@@ -222,18 +237,19 @@ export default function DoctorCases() {
                       variant="outline"
                       size="sm"
                       onClick={() => void handleDownloadCaseReport(caseItem)}
-                      disabled={!caseItem.mri_report}
+                      disabled={!caseItem.mri_report || !canDownload}
                     >
                       <Download className="h-4 w-4 mr-2" />
                       PDF
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => void openSelectedCase(caseItem)}>
+                    <Button variant="outline" size="sm" onClick={() => void openSelectedCase(caseItem)} disabled={!canView}>
                       <Eye className="h-4 w-4 mr-2" />
                       Review
                     </Button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -249,23 +265,13 @@ export default function DoctorCases() {
             <div className="space-y-6 py-4">
               <div className="grid gap-6 lg:grid-cols-[240px,1fr]">
                 <div className="space-y-4">
-                  <div className="mx-auto flex min-h-44 w-full max-w-[240px] items-center justify-center rounded-xl border bg-muted/40 p-3">
-                    {selectedCaseLoading ? (
-                      <div className="flex h-full items-center justify-center text-muted-foreground">
-                        <Loader2 className="h-6 w-6 animate-spin" />
-                      </div>
-                    ) : selectedCaseUrl ? (
-                      <img
-                        src={selectedCaseUrl}
-                        alt={selectedCase.mri_report?.file_name || 'MRI Scan'}
-                        className="max-h-48 w-auto max-w-full object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                        The MRI image could not be loaded for this case.
-                      </div>
-                    )}
-                  </div>
+                  <ReportImagePreview
+                    loading={selectedCaseLoading}
+                    imageUrl={selectedCaseUrl}
+                    alt={selectedCase.mri_report?.file_name || 'MRI Scan'}
+                    fallbackText="The MRI image could not be loaded for this case."
+                    containerClassName="mx-auto flex min-h-44 w-full max-w-[240px] items-center justify-center rounded-xl border bg-muted/40 p-3"
+                  />
 
                   <div className="rounded-lg border bg-card p-4 space-y-3">
                     <div>
@@ -286,26 +292,13 @@ export default function DoctorCases() {
                         {selectedCase.mri_report?.status || 'pending'}
                       </span>
                     </div>
-                    {selectedCase.mri_report?.diagnosis && (
-                      <>
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">Risk Assessment</span>
-                          <RiskBadge level={selectedCase.mri_report.diagnosis.risk_level} size="sm" />
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">Confidence</span>
-                          <span>{selectedCase.mri_report.diagnosis.confidence}%</span>
-                        </div>
-                      </>
-                    )}
-                    {selectedCase.mri_report?.diagnosis?.details && (
-                      <div>
-                        <p className="text-sm font-medium">Analysis Details</p>
-                        <p className="mt-2 whitespace-pre-line text-sm text-muted-foreground">
-                          {selectedCase.mri_report.diagnosis.details}
-                        </p>
-                      </div>
-                    )}
+                    <ReportDiagnosisDetails
+                      diagnosis={selectedCase.mri_report?.diagnosis}
+                      badgeSize="sm"
+                      confidenceLabel="Confidence"
+                      compact
+                      emptyMessage="Diagnosis details are not available for this case yet."
+                    />
                   </div>
                 </div>
 
@@ -315,7 +308,7 @@ export default function DoctorCases() {
                       variant="outline"
                       size="sm"
                       onClick={() => void handleDownloadCaseReport(selectedCase)}
-                      disabled={!selectedCase.mri_report}
+                      disabled={!selectedCase.mri_report || !canRunCaseReportAction(selectedCase, 'download')}
                     >
                       <Download className="h-4 w-4 mr-2" />
                       Download PDF
