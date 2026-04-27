@@ -117,7 +117,7 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex">
       {/* Left Panel - Form */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-12">
         <div className="w-full max-w-md">
           {/* Back Button */}
           <Link to="/" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8">

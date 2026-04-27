@@ -162,3 +162,13 @@
   42% { transform: scale(1.1); }
   70% { transform: scale(1); }
 }
+
+@media (max-width: 640px) {
+  .container {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+  .p-4{
+    padding: 12px !important;
+  }
+}

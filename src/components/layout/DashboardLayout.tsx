@@ -20,7 +20,7 @@ export function DashboardLayout({ children, title, subtitle }: DashboardLayoutPr
       />
       
       <main className={`pt-16 transition-all duration-300 ${isSidebarCollapsed ? 'pl-20' : 'pl-64'}`}>
-        <div className="p-4 sm:p-6 lg:p-8">
+        <div className="p-3 sm:p-6 lg:p-8">
           {/* Page Header */}
           <div className="mb-6 sm:mb-8">
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold text-foreground leading-tight">
