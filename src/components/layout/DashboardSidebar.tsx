@@ -33,6 +33,7 @@ export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSid
           { title: 'Dashboard', href: '/doctor', icon: LayoutDashboard },
           { title: 'Patient Cases', href: '/doctor/cases', icon: Users },
           { title: 'Prescriptions', href: '/doctor/prescriptions', icon: ClipboardList },
+          { title: 'My Profile', href: '/doctor/complete-profile', icon: Settings },
         ];
       case 'admin':
         return [

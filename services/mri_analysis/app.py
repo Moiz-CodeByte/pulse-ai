@@ -256,5 +256,66 @@ def analyze_mri() -> Any:
         return jsonify({'error': str(exc)}), 500
 
 
+@app.post('/admin/create-user')
+def admin_create_user() -> Any:
+    """Admin endpoint to create a new user with auth account, profile, and role."""
+    if not supabase_admin:
+        return jsonify({'error': 'Admin client not configured'}), 500
+
+    data = request.get_json()
+    
+    # Validate required fields
+    email = data.get('email', '').strip()
+    password = data.get('password', '').strip()
+    full_name = data.get('fullName', '').strip()
+    role = data.get('role', 'patient')
+    verified = data.get('verified', True)
+    
+    if not email or not password or not full_name:
+        return jsonify({'error': 'Email, password, and full name are required'}), 400
+    
+    if len(password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+    
+    if role not in ['patient', 'doctor', 'admin']:
+        return jsonify({'error': 'Invalid role'}), 400
+    
+    try:
+        # Create auth user using admin client
+        auth_response = supabase_admin.auth.admin.create_user({
+            'email': email,
+            'password': password,
+            'email_confirm': True,
+        })
+        
+        if not auth_response.user:
+            return jsonify({'error': 'Failed to create auth user'}), 500
+        
+        user_id = auth_response.user.id
+        
+        # Create profile
+        profile_response = supabase_admin.table('profiles').insert({
+            'id': user_id,
+            'full_name': full_name,
+            'email': email,
+        }).execute()
+        
+        # Create user role
+        role_response = supabase_admin.table('user_roles').insert({
+            'user_id': user_id,
+            'role': role,
+            'verified': verified if role == 'doctor' else True,
+        }).execute()
+        
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'message': f'User {full_name} created successfully as {role}',
+        })
+        
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('MRI_ANALYSIS_PORT', '5000')), debug=False)

@@ -42,3 +42,36 @@ export async function analyzeMRI(file: File, reportId: string): Promise<MRIAnaly
 
   return responseBody as MRIAnalysisResult;
 }
+
+export interface CreateUserData {
+  email: string;
+  password: string;
+  fullName: string;
+  role: 'patient' | 'doctor' | 'admin';
+  verified: boolean;
+}
+
+export interface CreateUserResponse {
+  success: boolean;
+  user_id?: string;
+  message?: string;
+  error?: string;
+}
+
+export async function adminCreateUser(userData: CreateUserData): Promise<CreateUserResponse> {
+  const response = await fetch(`${MRI_ANALYSIS_API_URL}/admin/create-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(userData),
+  });
+
+  const responseBody = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(responseBody?.error || 'Failed to create user');
+  }
+
+  return responseBody as CreateUserResponse;
+}

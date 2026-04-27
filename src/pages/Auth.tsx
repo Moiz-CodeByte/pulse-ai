@@ -91,10 +91,18 @@ export default function Auth() {
           toast({
             title: 'Registration Successful!',
             description: selectedRole === 'doctor' 
-              ? 'Your account has been created. Please wait for admin verification.'
+              ? 'Your account has been created. Please complete your professional profile.'
               : 'Your account has been created. You can now sign in.',
           });
-          setIsLogin(true);
+          if (selectedRole === 'doctor') {
+            // Doctor registered - sign them in and redirect to complete profile
+            const { error: signInError } = await signIn(formData.email, formData.password);
+            if (!signInError) {
+              navigate('/doctor/complete-profile');
+            }
+          } else {
+            setIsLogin(true);
+          }
         }
       }
     } catch (error: any) {
@@ -111,7 +119,6 @@ export default function Auth() {
   const roles = [
     { value: 'patient' as AppRole, label: 'Patient', icon: UserCircle, description: 'Upload scans and get diagnosis' },
     { value: 'doctor' as AppRole, label: 'Doctor', icon: Stethoscope, description: 'Review cases and prescribe' },
-    { value: 'admin' as AppRole, label: 'Admin', icon: ShieldCheck, description: 'Manage users and system' },
   ];
 
   return (
@@ -150,7 +157,7 @@ export default function Auth() {
                 {/* Role Selection */}
                 <div className="space-y-3">
                   <Label>I am a...</Label>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {roles.map((role) => (
                       <button
                         key={role.value}

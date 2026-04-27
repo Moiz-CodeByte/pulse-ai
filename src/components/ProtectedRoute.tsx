@@ -1,6 +1,7 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { Loader2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -16,8 +17,42 @@ export function ProtectedRoute({ children, allowedRoles, requireVerified = false
   const { user, userRole, isVerified, loading, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [checkingDoctorProfile, setCheckingDoctorProfile] = useState(false);
+  const [doctorProfileComplete, setDoctorProfileComplete] = useState<boolean | null>(null);
 
-  if (loading) {
+  // Check if doctor has completed their profile
+  useEffect(() => {
+    const checkDoctorProfile = async () => {
+      if (!user || userRole !== 'doctor' || location.pathname === '/doctor/complete-profile') {
+        return;
+      }
+
+      setCheckingDoctorProfile(true);
+
+      try {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - doctor_information table not yet in generated types
+        const { data, error } = await supabase.from('doctor_information').select('profile_completed').eq('user_id', user.id).maybeSingle();
+
+        if (error) {
+          console.error('Error checking doctor profile:', error);
+          setDoctorProfileComplete(null);
+        } else if (data) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setDoctorProfileComplete((data as any).profile_completed || false);
+        } else {
+          // No profile record exists
+          setDoctorProfileComplete(false);
+        }
+      } finally {
+        setCheckingDoctorProfile(false);
+      }
+    };
+
+    checkDoctorProfile();
+  }, [user, userRole, location.pathname]);
+
+  if (loading || checkingDoctorProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -38,6 +73,16 @@ export function ProtectedRoute({ children, allowedRoles, requireVerified = false
     return <Navigate to={redirectPath} replace />;
   }
 
+  // Redirect doctors to complete profile if not completed (BEFORE verification check)
+  if (
+    userRole === 'doctor' && 
+    doctorProfileComplete === false && 
+    location.pathname !== '/doctor/complete-profile'
+  ) {
+    return <Navigate to="/doctor/complete-profile" replace />;
+  }
+
+  // Only check verification AFTER profile completion check
   if (requireVerified && !isVerified) {
     const handleSignOut = async () => {
       await signOut();

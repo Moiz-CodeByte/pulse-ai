@@ -22,6 +22,7 @@ import PatientPrescriptions from "./pages/patient/Prescriptions";
 import DoctorDashboard from "./pages/doctor/Dashboard";
 import DoctorCases from "./pages/doctor/Cases";
 import DoctorPrescriptions from "./pages/doctor/Prescriptions";
+import DoctorCompleteProfile from "./pages/doctor/CompleteProfile";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -80,6 +81,14 @@ const App = () => (
             />
 
             {/* Doctor Routes */}
+            <Route
+              path="/doctor/complete-profile"
+              element={
+                <ProtectedRoute allowedRoles={['doctor']}>
+                  <DoctorCompleteProfile />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/doctor"
               element={
