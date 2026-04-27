@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { Preloader } from "@/components/ui/Preloader";
 
 // Pages
 import Landing from "./pages/Landing";
@@ -35,6 +36,7 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
+    <Preloader />
     <ThemeProvider>
       <AuthProvider>
         <TooltipProvider>

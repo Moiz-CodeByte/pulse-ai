@@ -278,7 +278,8 @@ export default function Auth() {
         </div>
         
         <div className="relative z-10 text-center text-primary-foreground">
-          <Heart className="h-24 w-24 mx-auto mb-8 animate-heartbeat" />          <h2 className="text-3xl font-display font-bold mb-4">
+          <Heart className="h-24 w-24 mx-auto mb-8 animate-heartbeat" />
+          <h2 className="text-3xl font-display font-bold mb-4">
             Your Heart Health Partner
           </h2>
           <p className="text-lg opacity-90 max-w-md">

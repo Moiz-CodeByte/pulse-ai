@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Navbar } from '@/components/layout/Navbar';
+import { Footer } from '@/components/layout/Footer';
 import { GraduationCap, Briefcase, Phone, Award, Loader2, Info, Plus, Trash2, LogOut } from 'lucide-react';
 
 interface EducationEntry {
@@ -517,11 +518,7 @@ export default function DoctorCompleteProfile() {
           </div>
         </form>
 
-        {/* Footer */}
-        <footer className="mt-12 pt-6 border-t text-center text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} Pulse AI. All rights reserved.</p>
-          <p className="mt-2">Need help? Contact support at support@pulse-ai.com</p>
-        </footer>
+        <Footer />
         </div>
       </div>
     </>
