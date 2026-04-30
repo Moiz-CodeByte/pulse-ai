@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Download, Eye, FileText } from 'lucide-react';
+import { Download, Eye, FileText, Send } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ReportDiagnosisDetails } from '@/components/reports/ReportDiagnosisDetails';
 import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
+import { SendToDoctorDialog } from '@/components/patient/SendToDoctorDialog';
 import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,6 +26,7 @@ export default function PatientReports() {
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
   const [selectedReportLoading, setSelectedReportLoading] = useState(false);
+  const [sendToDoctorReport, setSendToDoctorReport] = useState<Report | null>(null);
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
@@ -175,6 +177,17 @@ export default function PatientReports() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="h-9 gap-1.5"
+                      aria-label="Send to doctor"
+                      title="Send to doctor for consultation"
+                      onClick={() => setSendToDoctorReport(report)}
+                    >
+                      <Send className="h-4 w-4" />
+                      <span className="hidden sm:inline">Send to Doctor</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="h-9 w-9 p-0"
                       aria-label="Download report PDF"
                       title="Download report PDF"
@@ -237,6 +250,13 @@ export default function PatientReports() {
           )}
         </DialogContent>
       </Dialog>
+
+      <SendToDoctorDialog
+        open={!!sendToDoctorReport}
+        onOpenChange={(open) => !open && setSendToDoctorReport(null)}
+        reportId={sendToDoctorReport?.id || ''}
+        reportName={sendToDoctorReport?.file_name || ''}
+      />
     </DashboardLayout>
   );
 }

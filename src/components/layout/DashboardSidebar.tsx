@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Upload, FileText, Users, UserCheck, Settings, Stethoscope, ClipboardList, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LayoutDashboard, Upload, FileText, Users, UserCheck, Settings, Stethoscope, ClipboardList, PanelLeftClose, PanelLeftOpen, MessageSquare } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 import { AppLogo } from '@/components/ui/AppLogo';
@@ -26,13 +26,16 @@ export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSid
           { title: 'Dashboard', href: '/patient', icon: LayoutDashboard },
           { title: 'Upload MRI', href: '/patient/upload', icon: Upload },
           { title: 'My Reports', href: '/patient/reports', icon: FileText },
+          { title: 'My Chats', href: '/patient/chat', icon: MessageSquare },
           { title: 'Prescriptions', href: '/patient/prescriptions', icon: ClipboardList },
         ];
       case 'doctor':
         return [
           { title: 'Dashboard', href: '/doctor', icon: LayoutDashboard },
           { title: 'Patient Cases', href: '/doctor/cases', icon: Users },
-          { title: 'Prescriptions', href: '/doctor/prescriptions', icon: ClipboardList },
+          { title: 'Consultations', href: '/doctor/consultations', icon: ClipboardList },
+          { title: 'Chat', href: '/doctor/chat', icon: MessageSquare },
+          { title: 'Prescriptions', href: '/doctor/prescriptions', icon: FileText },
           { title: 'My Profile', href: '/doctor/complete-profile', icon: Settings },
         ];
       case 'admin':

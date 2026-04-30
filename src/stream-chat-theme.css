@@ -1,0 +1,129 @@
+/* ─────────────────────────────────────────────────────────────────
+   Pulse AI – GetStream Chat Theme Overrides
+   Works for both light and dark modes.
+────────────────────────────────────────────────────────────────── */
+
+/* Channel list */
+.str-chat__channel-list {
+  background: transparent !important;
+}
+
+.str-chat__channel-preview {
+  border-radius: 0.75rem;
+  margin: 0.25rem 0.5rem;
+  padding: 0.75rem !important;
+  transition: background 0.15s;
+}
+
+.str-chat__channel-preview:hover,
+.str-chat__channel-preview--active {
+  background: hsl(var(--accent)) !important;
+}
+
+.str-chat__channel-preview-title {
+  color: hsl(var(--foreground)) !important;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.str-chat__channel-preview-last-message {
+  color: hsl(var(--muted-foreground)) !important;
+  font-size: 0.75rem;
+}
+
+/* Message list */
+.str-chat__list {
+  background: transparent !important;
+  padding: 1rem !important;
+}
+
+.str-chat__message-simple {
+  margin-bottom: 0.5rem;
+}
+
+/* Outgoing (own) messages */
+.str-chat__message--me .str-chat__message-bubble {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-radius: 1rem 1rem 0.25rem 1rem !important;
+}
+
+/* Incoming messages */
+.str-chat__message-bubble {
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 1rem 1rem 1rem 0.25rem !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+}
+
+/* System / notification messages */
+.str-chat__message--system .str-chat__message-bubble {
+  background: hsl(var(--muted)) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  border-radius: 0.75rem !important;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+/* Input area */
+.str-chat__input-flat {
+  background: hsl(var(--card)) !important;
+  border-top: 1px solid hsl(var(--border)) !important;
+  padding: 0.75rem 1rem !important;
+}
+
+.str-chat__input-flat .str-chat__textarea textarea {
+  background: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 0.75rem !important;
+  font-size: 0.875rem;
+}
+
+.str-chat__input-flat .str-chat__textarea textarea:focus {
+  outline: none;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2) !important;
+}
+
+/* Send button */
+.str-chat__send-button {
+  background: hsl(var(--primary)) !important;
+  border-radius: 50% !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Header */
+.str-chat__header-livestream {
+  background: hsl(var(--card)) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+}
+
+/* Date separators */
+.str-chat__date-separator {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Avatar */
+.str-chat__avatar {
+  border-radius: 50% !important;
+}
+
+/* Emoji button / attachment button */
+.str-chat__input-flat-emojiselect,
+.str-chat__input-flat-fileupload {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Dark mode wrapper */
+.dark .str-chat {
+  --str-chat__primary-color: hsl(var(--primary));
+  --str-chat__active-primary-color: hsl(var(--primary));
+  --str-chat__surface-color: hsl(var(--card));
+  --str-chat__secondary-surface-color: hsl(var(--background));
+  --str-chat__primary-surface-color: hsl(var(--muted));
+  --str-chat__primary-surface-color-low-emphasis: hsl(var(--muted));
+  --str-chat__disabled-color: hsl(var(--muted-foreground));
+  color-scheme: dark;
+}

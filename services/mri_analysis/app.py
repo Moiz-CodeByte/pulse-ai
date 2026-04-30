@@ -5,6 +5,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+try:
+    from stream_chat import StreamChat as _StreamChat
+    _STREAM_AVAILABLE = True
+except ImportError:
+    _StreamChat = None  # type: ignore
+    _STREAM_AVAILABLE = False
+
 import numpy as np
 import pydicom
 from dotenv import load_dotenv
@@ -17,7 +24,7 @@ from tensorflow.keras.models import load_model
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent.parent
 
-load_dotenv(PROJECT_ROOT / '.env')
+load_dotenv(PROJECT_ROOT / '.env', override=True)
 load_dotenv(BASE_DIR / '.env', override=False)
 
 MODEL_PATH = Path(
@@ -89,8 +96,27 @@ if not MODEL_PATH.exists():
 prediction_model = load_model(MODEL_PATH)
 supabase_admin = build_supabase_admin_client()
 
+
+def build_stream_client():
+    """Build GetStream server-side client if credentials are configured."""
+    if not _STREAM_AVAILABLE:
+        return None
+    api_key = os.getenv('STREAM_API_KEY', '').strip()
+    api_secret = os.getenv('STREAM_API_SECRET', '').strip()
+    if not api_key or not api_secret:
+        return None
+    return _StreamChat(api_key=api_key, api_secret=api_secret)
+
+
+stream_client = build_stream_client()
+
 app = Flask(__name__)
 CORS(app)
+
+# Startup diagnostics
+print(f'[Pulse AI] Project root: {PROJECT_ROOT}')
+print(f'[Pulse AI] Supabase persistence: {bool(supabase_admin)}')
+print(f'[Pulse AI] Stream chat configured: {bool(stream_client)}')
 
 
 def decode_image(file_bytes: bytes, filename: str) -> np.ndarray:
@@ -315,6 +341,120 @@ def admin_create_user() -> Any:
         
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
+
+
+@app.post('/stream/token')
+def get_stream_token() -> Any:
+    """Generate a Stream user token for the authenticated user."""
+    if not stream_client:
+        return jsonify({'error': 'Stream chat is not configured. Set STREAM_API_KEY and STREAM_API_SECRET.'}), 503
+
+    data = request.get_json()
+    user_id = (data or {}).get('user_id', '').strip()
+    user_name = (data or {}).get('user_name', '').strip()
+    user_role = (data or {}).get('user_role', 'patient').strip()
+
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+
+    # Upsert the user in Stream
+    try:
+        stream_client.update_user({
+            'id': user_id,
+            'name': user_name or user_id,
+            'role': 'user',
+            'app_role': user_role,
+        })
+    except Exception as exc:
+        print(f'[Stream] update_user failed: {exc}')
+
+    token = stream_client.create_token(user_id)
+    api_key = os.getenv('STREAM_API_KEY', '')
+
+    return jsonify({'token': token, 'api_key': api_key})
+
+
+@app.post('/stream/create-channel')
+def create_stream_channel() -> Any:
+    """Create (or retrieve) a Stream channel for a consultation."""
+    if not stream_client:
+        return jsonify({'error': 'Stream chat is not configured.'}), 503
+
+    data = request.get_json()
+    consultation_id = (data or {}).get('consultation_id', '').strip()
+    patient_id = (data or {}).get('patient_id', '').strip()
+    patient_name = (data or {}).get('patient_name', 'Patient').strip()
+    doctor_id = (data or {}).get('doctor_id', '').strip()
+    doctor_name = (data or {}).get('doctor_name', 'Doctor').strip()
+    report_info = (data or {}).get('report_info', {})
+
+    if not consultation_id or not patient_id:
+        return jsonify({'error': 'consultation_id and patient_id are required'}), 400
+
+    channel_id = f'consultation-{consultation_id}'
+
+    # Upsert both users in Stream
+    members = [
+        {'id': patient_id, 'name': patient_name, 'role': 'user', 'app_role': 'patient'},
+    ]
+    if doctor_id:
+        members.append({'id': doctor_id, 'name': doctor_name, 'role': 'user', 'app_role': 'doctor'})
+
+    try:
+        stream_client.update_users(members)
+    except Exception as exc:
+        print(f'[Stream] upsert_users failed: {exc}')
+        # Non-fatal — continue even if user upsert fails
+
+    member_ids = [patient_id] + ([doctor_id] if doctor_id else [])
+
+    # Create the channel
+    try:
+        channel = stream_client.channel(
+            'messaging',
+            channel_id,
+            {
+                'members': member_ids,
+                'consultation_id': consultation_id,
+                'report_name': report_info.get('name', ''),
+                'report_risk': report_info.get('risk_level', ''),
+                'report_diagnosis': report_info.get('diagnosis', ''),
+                'report_id': report_info.get('report_id', ''),
+            },
+        )
+        channel.create(patient_id)
+    except Exception as exc:
+        print(f'[Stream] channel.create failed: {exc}')
+        return jsonify({'error': f'Failed to create Stream channel: {exc}'}), 500
+
+    # Send an initial system message with report details
+    if report_info:
+        try:
+            risk = report_info.get('risk_level', 'unknown').upper()
+            diagnosis = report_info.get('diagnosis', '')
+            urgency = report_info.get('urgency', 'routine')
+            symptoms = report_info.get('symptoms', '')
+            patient_msg = report_info.get('patient_message', '')
+
+            system_text = (
+                f'**New Consultation Request**\n\n'
+                f'**Report:** {report_info.get("name", "MRI Report")}\n'
+                f'**Risk Level:** {risk}\n'
+                + (f'**Diagnosis:** {diagnosis}\n' if diagnosis else '')
+                + (f'**Urgency:** {urgency.capitalize()}\n' if urgency else '')
+                + (f'**Symptoms:** {symptoms}\n' if symptoms else '')
+                + (f'**Patient Note:** {patient_msg}\n' if patient_msg else '')
+            )
+
+            channel.send_message(
+                {'text': system_text},
+                user_id=patient_id,
+            )
+        except Exception as exc:
+            print(f'[Stream] send_message failed: {exc}')
+            # Non-fatal — channel exists, message is optional
+
+    return jsonify({'channel_id': channel_id, 'api_key': os.getenv('STREAM_API_KEY', '')})
 
 
 if __name__ == '__main__':

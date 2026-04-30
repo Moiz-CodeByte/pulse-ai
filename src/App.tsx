@@ -18,12 +18,15 @@ import PatientDashboard from "./pages/patient/Dashboard";
 import PatientUpload from "./pages/patient/Upload";
 import PatientReports from "./pages/patient/Reports";
 import PatientPrescriptions from "./pages/patient/Prescriptions";
+import PatientChat from "./pages/patient/Chat";
 
 // Doctor Pages
 import DoctorDashboard from "./pages/doctor/Dashboard";
 import DoctorCases from "./pages/doctor/Cases";
 import DoctorPrescriptions from "./pages/doctor/Prescriptions";
 import DoctorCompleteProfile from "./pages/doctor/CompleteProfile";
+import DoctorConsultationRequests from "./pages/doctor/ConsultationRequests";
+import DoctorChat from "./pages/doctor/Chat";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -81,6 +84,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/patient/chat"
+              element={
+                <ProtectedRoute allowedRoles={['patient']}>
+                  <PatientChat />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Doctor Routes */}
             <Route
@@ -112,6 +123,22 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={['doctor']} requireVerified>
                   <DoctorPrescriptions />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/doctor/consultations"
+              element={
+                <ProtectedRoute allowedRoles={['doctor']} requireVerified>
+                  <DoctorConsultationRequests />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/doctor/chat"
+              element={
+                <ProtectedRoute allowedRoles={['doctor']} requireVerified>
+                  <DoctorChat />
                 </ProtectedRoute>
               }
             />
