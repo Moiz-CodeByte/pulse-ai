@@ -21,7 +21,7 @@ export interface MRIAnalysisResult {
   persistenceMessage: string | null;
 }
 
-const DEFAULT_MRI_ANALYSIS_API_URL = '';
+const DEFAULT_MRI_ANALYSIS_API_URL = 'http://127.0.0.1:5000';
 const MRI_ANALYSIS_API_URL = import.meta.env.VITE_MRI_ANALYSIS_API_URL || DEFAULT_MRI_ANALYSIS_API_URL;
 
 export async function analyzeMRI(file: File, reportId: string): Promise<MRIAnalysisResult> {
