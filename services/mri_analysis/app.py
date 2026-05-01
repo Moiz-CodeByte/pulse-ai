@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ except ImportError:
 
 import numpy as np
 import pydicom
+import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -27,12 +29,26 @@ PROJECT_ROOT = BASE_DIR.parent.parent
 load_dotenv(PROJECT_ROOT / '.env', override=True)
 load_dotenv(BASE_DIR / '.env', override=False)
 
-MODEL_PATH = Path(
-    os.getenv(
-        'MRI_ANALYSIS_MODEL_PATH',
-        PROJECT_ROOT / 'notebooks' / 'active' / 'models' / 'best_vgg_finetuned.keras',
-    )
+MODEL_SOURCE = os.getenv(
+    'MRI_ANALYSIS_MODEL_PATH',
+    str(PROJECT_ROOT / 'notebooks' / 'active' / 'models' / 'best_vgg_finetuned.keras'),
 )
+
+if MODEL_SOURCE.startswith('http://') or MODEL_SOURCE.startswith('https://'):
+    print(f'[Pulse AI] Downloading MRI model from URL: {MODEL_SOURCE}')
+    response = requests.get(MODEL_SOURCE, timeout=60)
+    response.raise_for_status()
+    tmp_model_file = tempfile.NamedTemporaryFile(suffix='.keras', delete=False)
+    tmp_model_file.write(response.content)
+    tmp_model_file.flush()
+    tmp_model_file.close()
+    MODEL_PATH = Path(tmp_model_file.name)
+else:
+    MODEL_PATH = Path(MODEL_SOURCE)
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError(f'MRI model not found: {MODEL_PATH}')
+
+print(f'[Pulse AI] Loading MRI model from: {MODEL_PATH}')
 
 CLASS_NAMES = ['NOR', 'DCM', 'MINF', 'RV', 'HCM']
 CLASS_INFO: dict[str, dict[str, str]] = {
