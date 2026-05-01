@@ -126,11 +126,6 @@ export function MRIUploader({ onUploadComplete }: MRIUploaderProps) {
       });
 
       if (uploadedReportId) {
-        await supabase
-          .from('mri_reports')
-          .update({ status: 'failed' })
-          .eq('id', uploadedReportId);
-
         clearFile();
         onUploadComplete?.(uploadedReportId);
       }
