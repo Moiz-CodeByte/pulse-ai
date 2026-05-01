@@ -4,6 +4,7 @@ numpy>=1.26,<3.0
 pillow>=10.4,<13.0
 pydicom>=2.4,<4.0
 python-dotenv>=1.0,<2.0
+requests>=2.31,<3.0
 stream-chat>=4.0,<5.0
 supabase>=2.6,<3.0
 tensorflow>=2.20,<3.0

@@ -14,6 +14,7 @@ except ImportError:
 
 import numpy as np
 import pydicom
+import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -27,12 +28,29 @@ PROJECT_ROOT = BASE_DIR.parent.parent
 load_dotenv(PROJECT_ROOT / '.env', override=True)
 load_dotenv(BASE_DIR / '.env', override=False)
 
-MODEL_PATH = Path(
-    os.getenv(
-        'MRI_ANALYSIS_MODEL_PATH',
-        PROJECT_ROOT / 'notebooks' / 'active' / 'models' / 'best_vgg_finetuned.keras',
-    )
+MODEL_PATH_STR = os.getenv(
+    'MRI_ANALYSIS_MODEL_PATH',
+    str(PROJECT_ROOT / 'notebooks' / 'active' / 'models' / 'best_vgg_finetuned.keras'),
 )
+
+if MODEL_PATH_STR.startswith('http'):
+    # It's a URL, download to cache
+    cache_dir = PROJECT_ROOT / 'cache'
+    cache_dir.mkdir(exist_ok=True)
+    model_filename = Path(MODEL_PATH_STR).name
+    cached_model_path = cache_dir / model_filename
+    
+    if not cached_model_path.exists():
+        print(f'Downloading model from {MODEL_PATH_STR}...')
+        response = requests.get(MODEL_PATH_STR)
+        response.raise_for_status()
+        with open(cached_model_path, 'wb') as f:
+            f.write(response.content)
+        print(f'Model downloaded to {cached_model_path}')
+    
+    MODEL_PATH = cached_model_path
+else:
+    MODEL_PATH = Path(MODEL_PATH_STR)
 
 CLASS_NAMES = ['NOR', 'DCM', 'MINF', 'RV', 'HCM']
 CLASS_INFO: dict[str, dict[str, str]] = {

@@ -14,12 +14,15 @@ notebooks/active/models
 notebooks/archive/models
 dist-ssr
 *.local
+cache/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+.env
+.env.*.local
 *.suo
 *.ntvs*
 *.njsproj
