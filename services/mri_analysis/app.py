@@ -128,8 +128,20 @@ def build_stream_client():
 
 stream_client = build_stream_client()
 
+# Configure CORS to accept requests from allowed origins
+def get_allowed_origins() -> list[str]:
+    """Get list of allowed CORS origins from environment or use defaults."""
+    allowed_origins = os.getenv('MRI_ANALYSIS_ALLOWED_ORIGINS', '').strip()
+    
+    if allowed_origins:
+        # Split by comma and clean up whitespace
+        return [origin.strip() for origin in allowed_origins.split(',')]
+    
+    # Default to localhost for development
+    return ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173']
+
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=get_allowed_origins(), supports_credentials=True)
 
 # Startup diagnostics
 print(f'[Pulse AI] Project root: {PROJECT_ROOT}')
