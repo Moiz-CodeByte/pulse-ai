@@ -28,9 +28,9 @@ function normalizeApiUrl(url: string): string {
   url = url.trim().replace(/^["']+|["']+$/g, '');
   
   // Ensure URL has a protocol
-  if (!url.match(/^https?:\/\//)) {
-    url = 'http://' + url;
-  }
+  // if (!url.match(/^https?:\/\//)) {
+  //   url = 'http://' + url;
+  // }
   
   // Remove trailing slash
   return url.replace(/\/$/, '');
