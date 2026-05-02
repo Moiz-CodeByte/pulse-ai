@@ -22,7 +22,21 @@ export interface MRIAnalysisResult {
 }
 
 const DEFAULT_MRI_ANALYSIS_API_URL = 'http://127.0.0.1:5000';
-const MRI_ANALYSIS_API_URL = (import.meta.env.VITE_MRI_ANALYSIS_API_URL || DEFAULT_MRI_ANALYSIS_API_URL).trim().replace(/^["']+|["']+$/g, '');
+
+function normalizeApiUrl(url: string): string {
+  // Remove quotes and whitespace
+  url = url.trim().replace(/^["']+|["']+$/g, '');
+  
+  // Ensure URL has a protocol
+  if (!url.match(/^https?:\/\//)) {
+    url = 'http://' + url;
+  }
+  
+  // Remove trailing slash
+  return url.replace(/\/$/, '');
+}
+
+const MRI_ANALYSIS_API_URL = normalizeApiUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL || DEFAULT_MRI_ANALYSIS_API_URL);
 
 export async function analyzeMRI(file: File, reportId: string): Promise<MRIAnalysisResult> {
   const formData = new FormData();
