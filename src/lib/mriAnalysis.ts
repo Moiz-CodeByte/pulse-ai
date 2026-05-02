@@ -28,15 +28,21 @@ function normalizeApiUrl(url: string): string {
   url = url.trim().replace(/^["']+|["']+$/g, '');
   
   // Ensure URL has a protocol
-  // if (!url.match(/^https?:\/\//)) {
-  //   url = 'http://' + url;
-  // }
+  if (!url.match(/^https?:\/\//)) {
+    url = 'http://' + url;
+  }
   
   // Remove trailing slash
   return url.replace(/\/$/, '');
 }
 
 const MRI_ANALYSIS_API_URL = normalizeApiUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL || DEFAULT_MRI_ANALYSIS_API_URL);
+
+// Debug logging in development
+if (import.meta.env.DEV) {
+  console.log('MRI_ANALYSIS_API_URL:', MRI_ANALYSIS_API_URL);
+  console.log('VITE_MRI_ANALYSIS_API_URL env:', import.meta.env.VITE_MRI_ANALYSIS_API_URL);
+}
 
 export async function analyzeMRI(file: File, reportId: string): Promise<MRIAnalysisResult> {
   const formData = new FormData();

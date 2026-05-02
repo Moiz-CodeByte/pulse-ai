@@ -5,6 +5,9 @@
             "framework": "vite"
         }
     },
+    "env": {
+        "VITE_MRI_ANALYSIS_API_URL": "https://pulse-ai-server.abdulmoiz.net"
+    },
     "rewrites": [
         { "source": "/(.*)", "destination": "/index.html" }
     ]
