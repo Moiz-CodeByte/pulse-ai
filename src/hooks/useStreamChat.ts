@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StreamChat, type OwnUserResponse } from 'stream-chat';
 import { useAuth } from '@/hooks/useAuth';
 
-const FLASK_BASE = import.meta.env.VITE_MRI_ANALYSIS_URL ?? 'http://localhost:5000';
+const FLASK_BASE = import.meta.env.VITE_MRI_ANALYSIS_API_URL ?? 'http://localhost:5000';
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY ?? '';
 
 export interface StreamChatState {
