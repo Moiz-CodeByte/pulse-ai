@@ -22,7 +22,6 @@ cache/
 .idea
 .DS_Store
 .env
-.env.production
 .env.*.local
 *.suo
 *.ntvs*
