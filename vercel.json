@@ -8,5 +8,9 @@
             "entrypoint": "services/mri_analysis",
             "routePrefix": "/_/mri_analysis"
         }
-    }
+    },
+    "rewrites": [
+        { "source": "/_/mri_analysis(.*)", "destination": "/_/mri_analysis$1" },
+        { "source": "/(.*)", "destination": "/index.html" }
+    ]
 }
