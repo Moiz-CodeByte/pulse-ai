@@ -1,0 +1,12 @@
+{
+    "experimentalServices": {
+        "frontend": {
+            "routePrefix": "/",
+            "framework": "vite"
+        },
+        "mri_analysis": {
+            "entrypoint": "services/mri_analysis",
+            "routePrefix": "/_/mri_analysis"
+        }
+    }
+}
