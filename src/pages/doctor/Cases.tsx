@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ReportDiagnosisDetails } from '@/components/reports/ReportDiagnosisDetails';
+import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
 import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
 import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { PrescriptionForm } from '@/components/doctor/PrescriptionForm';
@@ -256,15 +256,16 @@ export default function DoctorCases() {
       </Card>
 
       <Dialog open={!!selectedCase} onOpenChange={(open) => !open && closeSelectedCase()}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Case Details</DialogTitle>
           </DialogHeader>
 
           {selectedCase && (
             <div className="space-y-6 py-4">
-              <div className="grid gap-6 lg:grid-cols-[240px,1fr]">
-                <div className="space-y-4">
+              <ReportAnalysisPanel
+                analysis={selectedCase.mri_report?.diagnosis}
+                preview={
                   <ReportImagePreview
                     loading={selectedCaseLoading}
                     imageUrl={selectedCaseUrl}
@@ -272,11 +273,14 @@ export default function DoctorCases() {
                     fallbackText="The MRI image could not be loaded for this case."
                     containerClassName="mx-auto flex min-h-44 w-full max-w-[240px] items-center justify-center rounded-xl border bg-muted/40 p-3"
                   />
-
-                  <div className="rounded-lg border bg-card p-4 space-y-3">
+                }
+                sidebarContent={
+                  <div className="rounded-lg border bg-card p-4 space-y-4">
                     <div>
-                      <p className="text-sm font-medium">Patient</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Patient
+                      </p>
+                      <p className="mt-2 text-sm text-foreground">
                         {selectedCase.patient_profile?.full_name || 'Patient'}
                       </p>
                     </div>
@@ -286,52 +290,51 @@ export default function DoctorCases() {
                         <span>{selectedCase.patient_profile.email}</span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">Report status</span>
-                      <span className="capitalize text-muted-foreground">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Report Status
+                      </p>
+                      <p className="mt-2 text-sm capitalize text-foreground">
                         {selectedCase.mri_report?.status || 'pending'}
-                      </span>
+                      </p>
                     </div>
-                    <ReportDiagnosisDetails
-                      diagnosis={selectedCase.mri_report?.diagnosis}
-                      badgeSize="sm"
-                      confidenceLabel="Confidence"
-                      compact
-                      emptyMessage="Diagnosis details are not available for this case yet."
-                    />
                   </div>
-                </div>
+                }
+                actionBar={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleDownloadCaseReport(selectedCase)}
+                    disabled={
+                      !selectedCase.mri_report ||
+                      !canRunCaseReportAction(selectedCase, 'download')
+                    }
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </Button>
+                }
+                emptyMessage="Diagnosis details are not available for this case yet."
+              />
 
-                <div className="space-y-4">
-                  <div className="flex justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleDownloadCaseReport(selectedCase)}
-                      disabled={!selectedCase.mri_report || !canRunCaseReportAction(selectedCase, 'download')}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download PDF
-                    </Button>
+              <div className="space-y-4">
+                <p className="text-muted-foreground">
+                  Review the MRI scan and provide your prescription below.
+                </p>
+
+                {selectedCase.mri_report?.diagnosis ? (
+                  <PrescriptionForm
+                    diagnosisId={selectedCase.mri_report.diagnosis.id}
+                    onSuccess={() => {
+                      closeSelectedCase();
+                      void fetchCases();
+                    }}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    A diagnosis must exist before a prescription can be submitted for this case.
                   </div>
-                  <p className="text-muted-foreground">
-                    Review the MRI scan and provide your prescription below.
-                  </p>
-
-                  {selectedCase.mri_report?.diagnosis ? (
-                    <PrescriptionForm
-                      diagnosisId={selectedCase.mri_report.diagnosis.id}
-                      onSuccess={() => {
-                        closeSelectedCase();
-                        void fetchCases();
-                      }}
-                    />
-                  ) : (
-                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      A diagnosis must exist before a prescription can be submitted for this case.
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             </div>
           )}

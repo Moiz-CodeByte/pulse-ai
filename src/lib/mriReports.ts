@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { supabase } from '@/integrations/supabase/client';
+import { parseDiagnosisDetails } from '@/lib/reportAnalysis';
 
 export const MRI_IMAGES_BUCKET = 'mri-images';
 
@@ -131,6 +132,17 @@ function ensurePdfSpace(doc: jsPDF, currentY: number, requiredHeight: number): n
 
   doc.addPage();
   return PDF_CONTENT_TOP;
+}
+
+function getDiagnosisDetailParagraphs(details: string | null | undefined): string[] {
+  const parsed = parseDiagnosisDetails(details);
+
+  if (!parsed) {
+    return [];
+  }
+
+  const sections = parsed.sections?.flatMap((section) => [section.title, section.body]) ?? [];
+  return sections.length ? sections : parsed.summaryText ?? [];
 }
 
 function drawPdfBranding(doc: jsPDF, pageNumber: number, totalPages: number): void {
@@ -293,7 +305,9 @@ export async function downloadMRIReportPdf(input: MRIReportPdfInput): Promise<vo
     currentY += renderHeight + 20;
   }
 
-  if (input.details) {
+  const detailParagraphs = getDiagnosisDetailParagraphs(input.details);
+
+  if (detailParagraphs.length) {
     currentY = ensurePdfSpace(doc, currentY, 24);
     doc.setFont('helvetica', 'bold');
     doc.text('Analysis Details', PDF_MARGIN, currentY);
@@ -301,7 +315,7 @@ export async function downloadMRIReportPdf(input: MRIReportPdfInput): Promise<vo
 
     doc.setFont('helvetica', 'normal');
 
-    for (const paragraph of input.details.split('\n')) {
+    for (const paragraph of detailParagraphs) {
       const wrappedParagraph = doc.splitTextToSize(paragraph || ' ', contentWidth);
 
       for (const line of wrappedParagraph) {

@@ -1,17 +1,17 @@
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, Image, Loader2, Activity, ShieldAlert, Stethoscope } from 'lucide-react';
+import { Upload, X, Image, Loader2, Send } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { RiskBadge } from '@/components/ui/RiskBadge';
+import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
+import { SendToDoctorDialog } from '@/components/patient/SendToDoctorDialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +30,8 @@ export function MRIUploader({ onUploadComplete }: MRIUploaderProps) {
   const [analysisResult, setAnalysisResult] = useState<MRIAnalysisResult | null>(null);
   const [resultPreview, setResultPreview] = useState<string | null>(null);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
+  const [latestReport, setLatestReport] = useState<{ id: string; name: string } | null>(null);
+  const [sendToDoctorOpen, setSendToDoctorOpen] = useState(false);
 
   const isBusy = submissionState !== 'idle';
 
@@ -105,6 +107,7 @@ export function MRIUploader({ onUploadComplete }: MRIUploaderProps) {
 
       setAnalysisResult(analysis);
       setResultPreview(currentPreview);
+      setLatestReport({ id: report.id, name: file.name });
       setResultDialogOpen(true);
 
       toast({
@@ -218,7 +221,7 @@ export function MRIUploader({ onUploadComplete }: MRIUploaderProps) {
       </div>
 
       <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>MRI Analysis Result</DialogTitle>
             <DialogDescription>
@@ -226,111 +229,52 @@ export function MRIUploader({ onUploadComplete }: MRIUploaderProps) {
             </DialogDescription>
           </DialogHeader>
 
-          {analysisResult && (
-            <div className="grid gap-6 lg:grid-cols-[220px,1fr] py-2">
-              <div className="space-y-4">
-                <div className="aspect-square overflow-hidden rounded-xl border bg-muted">
-                  {resultPreview ? (
-                    <img
-                      src={resultPreview}
-                      alt="Uploaded MRI preview"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center">
-                      <Image className="h-10 w-10 text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Threat Level</p>
-                    <div className="mt-2">
-                      <RiskBadge level={analysisResult.riskLevel} size="sm" />
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{analysisResult.threatLevel}</p>
+          <ReportAnalysisPanel
+            analysis={analysisResult}
+            preview={
+              <div className="aspect-square overflow-hidden rounded-xl border bg-muted">
+                {resultPreview ? (
+                  <img
+                    src={resultPreview}
+                    alt="Uploaded MRI preview"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <Image className="h-10 w-10 text-muted-foreground" />
                   </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Clinical Priority</p>
-                    <p className="mt-1 text-sm font-medium text-foreground">{analysisResult.clinicalPriority}</p>
-                  </div>
-                </div>
+                )}
               </div>
-
-              <div className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl border p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Predicted Disease</p>
-                    <p className="mt-2 text-lg font-semibold text-foreground">{analysisResult.diseaseName}</p>
-                    <p className="text-sm text-muted-foreground">Class: {analysisResult.predictedLabel}</p>
-                  </div>
-
-                  <div className="rounded-xl border p-4">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Activity className="h-4 w-4" />
-                      <p className="text-xs font-medium uppercase tracking-wide">Model Confidence</p>
-                    </div>
-                    <p className="mt-2 text-2xl font-semibold text-foreground">{analysisResult.confidence.toFixed(2)}%</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{analysisResult.confidenceNote}</p>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border p-4">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-primary" />
-                    <h3 className="font-semibold text-foreground">Disease Detail</h3>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{analysisResult.detail}</p>
-                </div>
-
-                <div className="rounded-xl border p-4">
-                  <div className="flex items-center gap-2">
-                    <Stethoscope className="h-4 w-4 text-primary" />
-                    <h3 className="font-semibold text-foreground">Patient Guidance</h3>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{analysisResult.patientGuidance}</p>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{analysisResult.recommendation}</p>
-                </div>
-
-                <div className="rounded-xl border p-4">
-                  <h3 className="font-semibold text-foreground">Prediction Breakdown</h3>
-                  <div className="mt-4 space-y-3">
-                    {analysisResult.rankedResults.map((result) => (
-                      <div key={result.label} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium text-foreground">{result.label}</span>
-                          <span className="text-muted-foreground">{result.probability.toFixed(2)}%</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${Math.max(result.probability, 2)}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              {analysisResult?.persistenceMessage || 'Result generated from the saved MRI model.'}
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setResultDialogOpen(false)}>
-                Close
-              </Button>
-              <Button asChild>
-                <Link to="/patient/reports">View Reports</Link>
-              </Button>
-            </div>
-          </DialogFooter>
+            }
+            footerMessage={
+              analysisResult?.persistenceMessage || 'Result generated from the saved MRI model.'
+            }
+            footerActions={
+              <>
+                {latestReport && (
+                  <Button variant="outline" onClick={() => setSendToDoctorOpen(true)}>
+                    <Send className="mr-2 h-4 w-4" />
+                    Send to Doctor
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => setResultDialogOpen(false)}>
+                  Close
+                </Button>
+                <Button asChild>
+                  <Link to="/patient/reports">View Reports</Link>
+                </Button>
+              </>
+            }
+          />
         </DialogContent>
       </Dialog>
+
+      <SendToDoctorDialog
+        open={sendToDoctorOpen}
+        onOpenChange={setSendToDoctorOpen}
+        reportId={latestReport?.id || ''}
+        reportName={latestReport?.name || ''}
+      />
     </>
   );
 }

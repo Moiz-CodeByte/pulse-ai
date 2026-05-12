@@ -5,7 +5,7 @@ import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ReportDiagnosisDetails } from '@/components/reports/ReportDiagnosisDetails';
+import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
 import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
 import { SendToDoctorDialog } from '@/components/patient/SendToDoctorDialog';
 import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
@@ -218,35 +218,53 @@ export default function PatientReports() {
       </Card>
 
       <Dialog open={!!selectedReport} onOpenChange={(open) => !open && closeSelectedReport()}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Report Details</DialogTitle>
           </DialogHeader>
 
           {selectedReport && (
-            <div className="grid gap-6 py-4 sm:grid-cols-[220px,1fr] sm:items-start">
-              <ReportImagePreview
-                loading={selectedReportLoading}
-                imageUrl={selectedReportUrl}
-                alt={selectedReport.file_name}
-                fallbackText="The MRI image could not be loaded for this report."
-              />
-
-              <div className="space-y-4">
-                <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={() => void handleDownloadReport(selectedReport)}>
+            <ReportAnalysisPanel
+              analysis={selectedReport.diagnosis}
+              preview={
+                <ReportImagePreview
+                  loading={selectedReportLoading}
+                  imageUrl={selectedReportUrl}
+                  alt={selectedReport.file_name}
+                  fallbackText="The MRI image could not be loaded for this report."
+                />
+              }
+              sidebarContent={
+                <div className="rounded-xl border bg-card p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Report Status
+                  </p>
+                  <p className="mt-2 text-sm capitalize text-foreground">
+                    {selectedReport.status}
+                  </p>
+                </div>
+              }
+              actionBar={
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSendToDoctorReport(selectedReport)}
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    Send to Doctor
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleDownloadReport(selectedReport)}
+                  >
                     <Download className="h-4 w-4 mr-2" />
                     Download PDF
                   </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Status</span>
-                  <span className="text-sm capitalize text-muted-foreground">{selectedReport.status}</span>
-                </div>
-
-                <ReportDiagnosisDetails diagnosis={selectedReport.diagnosis} />
-              </div>
-            </div>
+                </>
+              }
+            />
           )}
         </DialogContent>
       </Dialog>

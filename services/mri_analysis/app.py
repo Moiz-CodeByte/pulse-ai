@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from io import BytesIO
 from pathlib import Path
@@ -203,7 +204,9 @@ def build_patient_summary(prediction_scores: np.ndarray) -> dict[str, Any]:
         )
     ]
 
-    recommendation = f"{info['patient_guidance']} Priority: {info['clinical_priority']}."
+    recommendation = (
+        f"Priority: {info['clinical_priority']}"
+    )
 
     return {
         'predictedLabel': predicted_label,
@@ -223,15 +226,32 @@ def build_patient_summary(prediction_scores: np.ndarray) -> dict[str, Any]:
 
 
 def format_diagnosis_details(summary: dict[str, Any]) -> str:
-    return '\n'.join(
-        [
-            f"Predicted disease: {summary['diseaseName']} ({summary['predictedLabel']})",
-            f"Threat level: {summary['threatLevel']}",
-            f"Disease detail: {summary['detail']}",
-            f"Patient guidance: {summary['patientGuidance']}",
-            f"Clinical priority: {summary['clinicalPriority']}",
-            f"Confidence note: {summary['confidenceNote']}",
-        ]
+    return json.dumps(
+        {
+            'version': 2,
+            'headline': {
+                'title': summary['diseaseName'],
+                'label': summary['predictedLabel'],
+                'riskLevel': summary['riskLevel'],
+                'confidence': summary['confidence'],
+            },
+            'metrics': [
+                {'label': 'Threat level', 'value': summary['threatLevel']},
+                {'label': 'Clinical priority', 'value': summary['clinicalPriority']},
+                {'label': 'Confidence note', 'value': summary['confidenceNote']},
+            ],
+            'sections': [
+                {'title': 'Disease detail', 'body': summary['detail']},
+                {'title': 'Patient guidance', 'body': summary['patientGuidance']},
+                {'title': 'Priority', 'body': summary['recommendation']},
+            ],
+            'summaryText': [
+                f"Predicted disease: {summary['diseaseName']} ({summary['predictedLabel']})",
+                f"Threat level: {summary['threatLevel']}",
+                f"Clinical priority: {summary['clinicalPriority']}",
+                f"Confidence note: {summary['confidenceNote']}",
+            ],
+        }
     )
 
 
