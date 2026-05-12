@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Download, Eye, FileText, Send } from 'lucide-react';
+import { Download, Eye, FileText, Send, Trash2 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { RiskBadge } from '@/components/ui/RiskBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
 import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
@@ -11,7 +12,12 @@ import { SendToDoctorDialog } from '@/components/patient/SendToDoctorDialog';
 import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
+import {
+  createMRISignedUrl,
+  deleteMRIReport,
+  downloadMRIReportPdf,
+  normalizeSingleRelation,
+} from '@/lib/mriReports';
 import { canUseReportAction } from '@/lib/reportPermissions';
 
 interface Report extends BaseReportRecord {
@@ -21,12 +27,14 @@ interface Report extends BaseReportRecord {
 
 export default function PatientReports() {
   const { user, userRole, isVerified } = useAuth();
+  const { toast } = useToast();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
   const [selectedReportLoading, setSelectedReportLoading] = useState(false);
   const [sendToDoctorReport, setSendToDoctorReport] = useState<Report | null>(null);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
@@ -120,6 +128,45 @@ export default function PatientReports() {
     }
   };
 
+  const handleDeleteReport = async (report: Report) => {
+    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingReportId(report.id);
+      await deleteMRIReport({
+        reportId: report.id,
+        fileReference: report.file_url,
+      });
+
+      setReports((currentReports) =>
+        currentReports.filter((currentReport) => currentReport.id !== report.id),
+      );
+
+      toast({
+        title: 'Report deleted',
+        description: 'The report has been successfully deleted.',
+      });
+      
+      if (selectedReport?.id === report.id) {
+        closeSelectedReport();
+      }
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      toast({
+        title: 'Error',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete the report. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingReportId(null);
+    }
+  };
+
   return (
     <DashboardLayout 
       title="My Reports" 
@@ -199,6 +246,17 @@ export default function PatientReports() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="Delete report"
+                      title="Delete report"
+                      onClick={() => void handleDeleteReport(report)}
+                      disabled={deletingReportId === report.id}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="h-9 w-9 p-0"
                       aria-label="View report details"
                       title="View report details"
@@ -253,6 +311,16 @@ export default function PatientReports() {
                   >
                     <Send className="h-4 w-4 mr-2" />
                     Send to Doctor
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void handleDeleteReport(selectedReport)}
+                    disabled={deletingReportId === selectedReport.id}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Report
                   </Button>
                   <Button
                     variant="outline"

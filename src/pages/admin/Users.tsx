@@ -31,6 +31,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { adminCreateUser } from '@/lib/mriAnalysis';
+import { formatConsultationFee, formatRating } from '@/lib/doctorProfiles';
 
 type AppRole = 'patient' | 'doctor' | 'admin';
 
@@ -69,6 +70,9 @@ interface DoctorInformation {
   office_address: string | null;
   bio: string | null;
   profile_completed: boolean;
+  consultation_fee?: number | null;
+  average_rating?: number | null;
+  total_reviews?: number | null;
   education_history?: Array<{
     degree: string;
     school: string;
@@ -79,6 +83,12 @@ interface DoctorInformation {
     hospital: string;
     department: string;
     position: string;
+  }>;
+  availability_schedule?: Array<{
+    day: string;
+    startTime: string;
+    endTime: string;
+    notes?: string;
   }>;
   // Old fields (deprecated but still in database)
   medical_degree?: string | null;
@@ -945,6 +955,21 @@ export default function AdminUsers() {
                           <span className="text-sm">{doctorInfo.years_of_experience} years</span>
                         </div>
                       )}
+                      <div className="flex justify-between items-start py-2 border-b">
+                        <span className="text-sm font-medium text-muted-foreground">Consultation Fee</span>
+                        <span className="text-sm text-right">
+                          {formatConsultationFee(doctorInfo.consultation_fee ?? undefined)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-start py-2 border-b">
+                        <span className="text-sm font-medium text-muted-foreground">Reviews</span>
+                        <span className="text-sm text-right">
+                          {formatRating(
+                            doctorInfo.average_rating ?? undefined,
+                            doctorInfo.total_reviews ?? undefined,
+                          )}
+                        </span>
+                      </div>
 
                       {/* Education History */}
                       {(doctorInfo.education_history && doctorInfo.education_history.length > 0) && (
@@ -1061,6 +1086,32 @@ export default function AdminUsers() {
                           <span className="text-sm text-right whitespace-pre-wrap">{doctorInfo.office_address}</span>
                         </div>
                       )}
+                      <div className="py-2 border-b">
+                        <span className="text-sm font-medium text-muted-foreground block mb-2">
+                          Availability Schedule
+                        </span>
+                        {doctorInfo.availability_schedule?.length ? (
+                          <div className="space-y-2">
+                            {doctorInfo.availability_schedule.map((slot, index) => (
+                              <div key={`${slot.day}-${slot.startTime}-${index}`} className="rounded-md border bg-muted/30 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-sm font-medium">{slot.day || 'Day not set'}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {slot.startTime && slot.endTime
+                                      ? `${slot.startTime} - ${slot.endTime}`
+                                      : 'Time not provided'}
+                                  </span>
+                                </div>
+                                {slot.notes ? (
+                                  <p className="mt-2 text-xs text-muted-foreground">{slot.notes}</p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No availability schedule provided.</p>
+                        )}
+                      </div>
 
                       {/* Bio */}
                       {doctorInfo.bio && (

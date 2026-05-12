@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Download, FileText, Eye, Upload, Activity, AlertTriangle } from 'lucide-react';
+import { Download, FileText, Eye, Upload, Activity, AlertTriangle, Trash2 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
 import { RiskBadge } from '@/components/ui/RiskBadge';
@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
+import { useToast } from '@/hooks/use-toast';
+import { deleteMRIReport, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
 import { canUseReportAction } from '@/lib/reportPermissions';
 import { Link } from 'react-router-dom';
 
@@ -19,8 +20,10 @@ interface Report extends BaseReportRecord {
 
 export default function PatientDashboard() {
   const { user, userRole, isVerified } = useAuth();
+  const { toast } = useToast();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
@@ -92,6 +95,41 @@ export default function PatientDashboard() {
       });
     } catch (error) {
       console.error('Failed to download report PDF', error);
+    }
+  };
+
+  const handleDeleteReport = async (report: Report) => {
+    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingReportId(report.id);
+      await deleteMRIReport({
+        reportId: report.id,
+        fileReference: report.file_url,
+      });
+
+      setReports((currentReports) =>
+        currentReports.filter((currentReport) => currentReport.id !== report.id),
+      );
+
+      toast({
+        title: 'Report deleted',
+        description: 'The report has been successfully deleted.',
+      });
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      toast({
+        title: 'Error',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete the report. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingReportId(null);
     }
   };
 
@@ -220,15 +258,27 @@ export default function PatientDashboard() {
                     ) : (
                       <span className="text-sm text-muted-foreground capitalize">{report.status}</span>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleDownloadReport(report)}
-                      disabled={!canRunReportAction(report, 'download')}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      PDF
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => void handleDeleteReport(report)}
+                        disabled={deletingReportId === report.id}
+                        title="Delete report"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleDownloadReport(report)}
+                        disabled={!canRunReportAction(report, 'download')}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        PDF
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}

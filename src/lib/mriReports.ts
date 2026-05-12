@@ -66,6 +66,34 @@ export function extractMRIStoragePath(fileReference: string | null | undefined):
   return null;
 }
 
+export async function deleteMRIReport(input: {
+  reportId: string;
+  fileReference?: string | null;
+}): Promise<void> {
+  const storagePath = extractMRIStoragePath(input.fileReference);
+
+  if (storagePath) {
+    const { error: storageError } = await supabase.storage
+      .from(MRI_IMAGES_BUCKET)
+      .remove([storagePath]);
+
+    // Ignore missing files so stale database rows can still be deleted.
+    if (
+      storageError &&
+      !/not found/i.test(storageError.message) &&
+      !/no such object/i.test(storageError.message)
+    ) {
+      throw storageError;
+    }
+  }
+
+  const { error } = await supabase.from('mri_reports').delete().eq('id', input.reportId);
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function createMRISignedUrl(
   fileReference: string | null | undefined,
   expiresIn = 60 * 60,

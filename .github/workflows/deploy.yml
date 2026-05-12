@@ -1,0 +1,48 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+
+          script: |
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            cd /var/www/pulse-ai
+
+            git reset --hard
+            git pull origin main
+
+            cd services/mri_analysis
+
+            # Create venv if missing
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+
+            # Activate venv
+            source venv/bin/activate
+
+            # Install dependencies
+            pip install -r requirements.txt
+
+            # Restart or start PM2 service
+            pm2 restart mri-service || pm2 start app.py --interpreter python3 --name mri-service
+            pm2 save
+
+            echo "✅ Deployment completed successfully!"

@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
-import { GraduationCap, Briefcase, Phone, Award, Loader2, Info, Plus, Trash2, LogOut } from 'lucide-react';
+import { GraduationCap, Briefcase, Phone, Award, Loader2, Info, Plus, Trash2, LogOut, CalendarDays } from 'lucide-react';
 
 interface EducationEntry {
   degree: string;
@@ -26,6 +26,13 @@ interface WorkEntry {
   position: string;
 }
 
+interface AvailabilityEntry {
+  day: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+}
+
 export default function DoctorCompleteProfile() {
   const { user, isVerified, signOut } = useAuth();
   const { toast } = useToast();
@@ -36,6 +43,7 @@ export default function DoctorCompleteProfile() {
     medical_license_number: '',
     specialization: '',
     years_of_experience: '',
+    consultation_fee: '',
     phone_number: '',
     office_address: '',
     bio: '',
@@ -45,6 +53,9 @@ export default function DoctorCompleteProfile() {
   ]);
   const [workHistory, setWorkHistory] = useState<WorkEntry[]>([
     { hospital: '', department: '', position: '' }
+  ]);
+  const [availabilitySchedule, setAvailabilitySchedule] = useState<AvailabilityEntry[]>([
+    { day: '', startTime: '', endTime: '', notes: '' }
   ]);
 
   useEffect(() => {
@@ -84,6 +95,29 @@ export default function DoctorCompleteProfile() {
     setWorkHistory(updated);
   };
 
+  const addAvailabilityEntry = () => {
+    setAvailabilitySchedule([
+      ...availabilitySchedule,
+      { day: '', startTime: '', endTime: '', notes: '' },
+    ]);
+  };
+
+  const removeAvailabilityEntry = (index: number) => {
+    if (availabilitySchedule.length > 1) {
+      setAvailabilitySchedule(availabilitySchedule.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateAvailabilityEntry = (
+    index: number,
+    field: keyof AvailabilityEntry,
+    value: string,
+  ) => {
+    const updated = [...availabilitySchedule];
+    updated[index] = { ...updated[index], [field]: value };
+    setAvailabilitySchedule(updated);
+  };
+
   const checkExistingProfile = async () => {
     if (!user) return;
 
@@ -107,6 +141,7 @@ export default function DoctorCompleteProfile() {
         medical_license_number: doctorData.medical_license_number || '',
         specialization: doctorData.specialization || '',
         years_of_experience: doctorData.years_of_experience?.toString() || '',
+        consultation_fee: doctorData.consultation_fee?.toString() || '',
         phone_number: doctorData.phone_number || '',
         office_address: doctorData.office_address || '',
         bio: doctorData.bio || '',
@@ -146,6 +181,21 @@ export default function DoctorCompleteProfile() {
           department: doctorData.department || '',
           position: doctorData.position || ''
         }]);
+      }
+
+      if (
+        doctorData.availability_schedule &&
+        Array.isArray(doctorData.availability_schedule) &&
+        doctorData.availability_schedule.length > 0
+      ) {
+        setAvailabilitySchedule(
+          doctorData.availability_schedule.map((slot: AvailabilityEntry) => ({
+            day: slot.day || '',
+            startTime: slot.startTime || '',
+            endTime: slot.endTime || '',
+            notes: slot.notes || '',
+          })),
+        );
       }
     }
     setCheckingProfile(false);
@@ -187,13 +237,24 @@ export default function DoctorCompleteProfile() {
           position: work.position
         }));
 
+      const filteredAvailability = availabilitySchedule
+        .filter((slot) => slot.day.trim() !== '' || slot.startTime.trim() !== '' || slot.endTime.trim() !== '' || slot.notes.trim() !== '')
+        .map((slot) => ({
+          day: slot.day,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          notes: slot.notes,
+        }));
+
       const profileData = {
         user_id: user?.id,
         medical_license_number: formData.medical_license_number,
         specialization: formData.specialization,
         years_of_experience: formData.years_of_experience ? parseInt(formData.years_of_experience) : null,
+        consultation_fee: formData.consultation_fee ? parseFloat(formData.consultation_fee) : null,
         education_history: filteredEducation,
         work_history: filteredWork,
+        availability_schedule: filteredAvailability,
         phone_number: formData.phone_number || null,
         office_address: formData.office_address || null,
         bio: formData.bio || null,
@@ -296,16 +357,30 @@ export default function DoctorCompleteProfile() {
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="experience">Years of Experience</Label>
-                <Input
-                  id="experience"
-                  type="number"
-                  min="0"
-                  value={formData.years_of_experience}
-                  onChange={(e) => setFormData({ ...formData, years_of_experience: e.target.value })}
-                  placeholder="e.g., 10"
-                />
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="experience">Years of Experience</Label>
+                  <Input
+                    id="experience"
+                    type="number"
+                    min="0"
+                    value={formData.years_of_experience}
+                    onChange={(e) => setFormData({ ...formData, years_of_experience: e.target.value })}
+                    placeholder="e.g., 10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="consultationFee">Consultation Fee</Label>
+                  <Input
+                    id="consultationFee"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.consultation_fee}
+                    onChange={(e) => setFormData({ ...formData, consultation_fee: e.target.value })}
+                    placeholder="e.g., 150"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -380,6 +455,77 @@ export default function DoctorCompleteProfile() {
                       onChange={(e) => updateEducationEntry(index, 'certifications', e.target.value)}
                       placeholder="List any additional certifications, fellowships, or specializations for this degree"
                       rows={2}
+                    />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="mb-6">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-5 w-5 text-primary" />
+                  <CardTitle>Availability Schedule</CardTitle>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addAvailabilityEntry}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Slot
+                </Button>
+              </div>
+              <CardDescription>Share your consultation hours so patients can review your availability</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {availabilitySchedule.map((slot, index) => (
+                <div key={index} className="p-4 border rounded-lg space-y-4 relative">
+                  {availabilitySchedule.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-2 right-2"
+                      onClick={() => removeAvailabilityEntry(index)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                  <div className="grid sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor={`day-${index}`}>Day</Label>
+                      <Input
+                        id={`day-${index}`}
+                        value={slot.day}
+                        onChange={(e) => updateAvailabilityEntry(index, 'day', e.target.value)}
+                        placeholder="e.g., Monday"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`start-${index}`}>Start Time</Label>
+                      <Input
+                        id={`start-${index}`}
+                        type="time"
+                        value={slot.startTime}
+                        onChange={(e) => updateAvailabilityEntry(index, 'startTime', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`end-${index}`}>End Time</Label>
+                      <Input
+                        id={`end-${index}`}
+                        type="time"
+                        value={slot.endTime}
+                        onChange={(e) => updateAvailabilityEntry(index, 'endTime', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`availabilityNotes-${index}`}>Notes</Label>
+                    <Input
+                      id={`availabilityNotes-${index}`}
+                      value={slot.notes}
+                      onChange={(e) => updateAvailabilityEntry(index, 'notes', e.target.value)}
+                      placeholder="e.g., In-person consultations only"
                     />
                   </div>
                 </div>

@@ -1,5 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Send, User, Phone, Mail, MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
+import {
+  Send,
+  User,
+  Phone,
+  Mail,
+  MessageSquare,
+  AlertCircle,
+  Loader2,
+  Info,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -20,17 +31,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { createConsultationChannel } from '@/hooks/useStreamChat';
-
-interface Doctor {
-  id: string;
-  full_name: string;
-  specialization?: string;
-  years_of_experience?: number;
-}
+import { supabase } from '@/integrations/supabase/client';
+import { DoctorDetailsPanel } from '@/components/patient/DoctorDetailsPanel';
+import { fetchAvailableDoctors, type DoctorDirectoryProfile } from '@/lib/doctorProfiles';
 
 interface SendToDoctorDialogProps {
   open: boolean;
@@ -43,11 +49,13 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
   const { user } = useAuth();
   const { toast } = useToast();
   
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [doctors, setDoctors] = useState<DoctorDirectoryProfile[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(true);
+  const [doctorLoadError, setDoctorLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('any');
+  const [showDoctorDetails, setShowDoctorDetails] = useState(false);
   const [contactPhone, setContactPhone] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [symptoms, setSymptoms] = useState('');
@@ -56,7 +64,8 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
 
   useEffect(() => {
     if (open) {
-      fetchVerifiedDoctors();
+      void loadDoctors();
+      setShowDoctorDetails(false);
       // Pre-fill email from user profile
       if (user?.email) {
         setContactEmail(user.email);
@@ -65,69 +74,16 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, user]);
 
-  const fetchVerifiedDoctors = async () => {
+  const loadDoctors = async () => {
     setLoadingDoctors(true);
+    setDoctorLoadError(null);
+
     try {
-      // Get all users with doctor role
-      const { data: doctorRoles, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('role', 'doctor');
-
-      if (rolesError) throw rolesError;
-
-      const doctorIds = doctorRoles?.map(r => r.user_id) || [];
-      console.log('[SendToDoctor] Doctor IDs from user_roles:', doctorIds);
-
-      if (doctorIds.length === 0) {
-        console.log('[SendToDoctor] No doctors found in user_roles');
-        setDoctors([]);
-        setLoadingDoctors(false);
-        return;
-      }
-
-      // Get doctor profiles
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .in('id', doctorIds);
-
-      if (profilesError) throw profilesError;
-      console.log('[SendToDoctor] Profiles fetched:', profiles);
-
-      // Try to get doctor specialization info (optional - table may not exist yet)
-      let doctorInfoMap = new Map<string, { specialization?: string; years_of_experience?: number }>();
-      try {
-        // @ts-expect-error - doctor_information table not yet in generated types
-        const query = supabase.from('doctor_information');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: doctorInfo } = await (query as any)
-          .select('user_id, specialization, years_of_experience')
-          .in('user_id', doctorIds);
-
-        if (doctorInfo) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          doctorInfoMap = new Map((doctorInfo as any[]).map(info => [info.user_id, info]));
-        }
-      } catch {
-        // doctor_information table may not exist yet, proceed without it
-      }
-
-      const doctorList: Doctor[] = (profiles || [])
-        .map(profile => {
-          const info = doctorInfoMap.get(profile.id);
-          return {
-            id: profile.id,
-            full_name: profile.full_name || 'Dr. (No Name)',
-            specialization: info?.specialization,
-            years_of_experience: info?.years_of_experience,
-          };
-        });
-
-      console.log('[SendToDoctor] Final doctor list:', doctorList);
+      const doctorList = await fetchAvailableDoctors();
       setDoctors(doctorList);
     } catch (error) {
       console.error('Error fetching doctors:', error);
+      setDoctorLoadError('Doctor profiles could not be loaded right now.');
       toast({
         title: 'Error',
         description: 'Failed to load available doctors. Please try again.',
@@ -137,6 +93,11 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
       setLoadingDoctors(false);
     }
   };
+
+  const selectedDoctor =
+    selectedDoctorId === 'any'
+      ? null
+      : doctors.find((doctor) => doctor.id === selectedDoctorId) || null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,13 +146,12 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
       const consultationId = (inserted as { id: string })?.id;
       if (consultationId) {
         try {
-          const selectedDoctor = doctors.find(d => d.id === selectedDoctorId);
           const channelId = await createConsultationChannel({
             consultation_id: consultationId,
             patient_id: user.id,
             patient_name: user.email ?? user.id,
             doctor_id: selectedDoctorId === 'any' ? null : selectedDoctorId,
-            doctor_name: selectedDoctor?.full_name,
+            doctor_name: selectedDoctor?.fullName,
             report_info: {
               name: reportName,
               urgency,
@@ -247,6 +207,7 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
 
   const resetForm = () => {
     setSelectedDoctorId('any');
+    setShowDoctorDetails(false);
     setContactPhone('');
     setContactEmail(user?.email || '');
     setSymptoms('');
@@ -266,7 +227,6 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-6 py-4">
-            {/* Doctor Selection */}
             <div className="space-y-2">
               <Label htmlFor="doctor">Select Doctor</Label>
               {loadingDoctors ? (
@@ -275,7 +235,13 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
                   Loading doctors...
                 </div>
               ) : (
-                <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
+                <Select
+                  value={selectedDoctorId}
+                  onValueChange={(value) => {
+                    setSelectedDoctorId(value);
+                    setShowDoctorDetails(false);
+                  }}
+                >
                   <SelectTrigger id="doctor">
                     <SelectValue placeholder="Select a doctor" />
                   </SelectTrigger>
@@ -289,11 +255,11 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
                     {doctors.map((doctor) => (
                       <SelectItem key={doctor.id} value={doctor.id}>
                         <div className="flex flex-col">
-                          <span className="font-medium">{doctor.full_name}</span>
-                          {doctor.specialization && (
+                          <span className="font-medium">{doctor.fullName}</span>
+                          {doctor.specializations[0] && (
                             <span className="text-xs text-muted-foreground">
-                              {doctor.specialization}
-                              {doctor.years_of_experience && ` • ${doctor.years_of_experience} years exp.`}
+                              {doctor.specializations.join(', ')}
+                              {doctor.yearsOfExperience && ` • ${doctor.yearsOfExperience} years exp.`}
                             </span>
                           )}
                         </div>
@@ -306,6 +272,42 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
                 Choose a specific doctor or let any available cardiologist review your report.
               </p>
             </div>
+
+            {doctorLoadError && (
+              <Alert variant="destructive">
+                <AlertDescription>{doctorLoadError}</AlertDescription>
+              </Alert>
+            )}
+
+            {!loadingDoctors && !doctorLoadError && selectedDoctor && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Info className="h-4 w-4 text-primary" />
+                    Doctor Details
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDoctorDetails((currentValue) => !currentValue)}
+                  >
+                    {showDoctorDetails ? (
+                      <>
+                        <ChevronUp className="mr-2 h-4 w-4" />
+                        Hide Details
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="mr-2 h-4 w-4" />
+                        Show Details
+                      </>
+                    )}
+                  </Button>
+                </div>
+                {showDoctorDetails ? <DoctorDetailsPanel doctor={selectedDoctor} /> : null}
+              </div>
+            )}
 
             {/* Urgency Level */}
             <div className="space-y-2">
