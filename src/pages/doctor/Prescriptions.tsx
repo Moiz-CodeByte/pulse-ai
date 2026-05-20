@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, ClipboardList, FileText, Pill, Search, User } from 'lucide-react';
+import { Activity, CalendarDays, ChevronDown, ChevronUp, ClipboardList, FileText, Hash, Pill, Search } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +25,9 @@ interface Prescription {
     fileName: string;
     label: string;
     createdAt: string;
+    status?: string | null;
     riskLevel?: string | null;
+    confidence?: number | null;
   };
   patient?: {
     id: string;
@@ -33,6 +35,8 @@ interface Prescription {
     email?: string | null;
   };
   caseName?: string;
+  caseStatus?: string | null;
+  caseRequestedAt?: string | null;
 }
 
 export default function DoctorPrescriptions() {
@@ -63,7 +67,7 @@ export default function DoctorPrescriptions() {
       const { data: diagnoses } = diagnosisIds.length
         ? await supabase
             .from('diagnosis')
-            .select('id, report_id, risk_level')
+            .select('id, report_id, risk_level, confidence')
             .in('id', diagnosisIds)
         : { data: [] };
 
@@ -71,7 +75,7 @@ export default function DoctorPrescriptions() {
       const { data: reports } = reportIds.length
         ? await supabase
             .from('mri_reports')
-            .select('id, file_name, created_at, patient_id')
+            .select('id, file_name, created_at, patient_id, status')
             .in('id', reportIds)
         : { data: [] };
 
@@ -88,7 +92,7 @@ export default function DoctorPrescriptions() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: consultations } = reportIds.length
         ? await (consultationQuery as any)
-            .select('id, report_id')
+            .select('id, report_id, status, created_at')
             .eq('doctor_id', user.id)
             .in('report_id', reportIds)
         : { data: [] };
@@ -97,7 +101,12 @@ export default function DoctorPrescriptions() {
       const reportMap = new Map((reports ?? []).map((item) => [item.id, item]));
       const profileMap = new Map((profiles ?? []).map((item) => [item.id, item]));
       const consultationMap = new Map(
-        ((consultations ?? []) as Array<{ id: string; report_id: string }>).map((item) => [item.report_id, item.id]),
+        ((consultations ?? []) as Array<{
+          id: string;
+          report_id: string;
+          status: string | null;
+          created_at: string | null;
+        }>).map((item) => [item.report_id, item]),
       );
       const reportSequencesByPatient = new Map<string, Map<string, number>>();
       const caseSequencesByPatient = new Map<string, Map<string, number>>();
@@ -108,8 +117,8 @@ export default function DoctorPrescriptions() {
 
         const patientCaseItems = patientReports
           .map((report) => {
-            const caseId = consultationMap.get(report.id);
-            return caseId ? { id: caseId, created_at: report.created_at } : null;
+            const consultation = consultationMap.get(report.id);
+            return consultation ? { id: consultation.id, created_at: consultation.created_at ?? report.created_at } : null;
           })
           .filter(Boolean) as Array<{ id: string; created_at: string }>;
         caseSequencesByPatient.set(patientId, buildSequenceMap(patientCaseItems));
@@ -126,11 +135,14 @@ export default function DoctorPrescriptions() {
               reportNumber: reportSequencesByPatient.get(report.patient_id)?.get(report.id),
             })
           : 'MRI report';
-        const caseId = report?.id ? consultationMap.get(report.id) : undefined;
+        const consultation = report?.id ? consultationMap.get(report.id) : undefined;
+        const caseId = consultation?.id;
 
         return {
           ...prescription,
           caseId,
+          caseStatus: consultation?.status,
+          caseRequestedAt: consultation?.created_at,
           caseName: caseId ? formatCaseLabel({
             reportLabel,
             caseNumber: report?.patient_id ? caseSequencesByPatient.get(report.patient_id)?.get(caseId) : undefined,
@@ -141,7 +153,9 @@ export default function DoctorPrescriptions() {
                 fileName: report.file_name,
                 label: reportLabel,
                 createdAt: report.created_at,
+                status: report.status,
                 riskLevel: diagnosis?.risk_level,
+                confidence: diagnosis?.confidence,
               }
             : undefined,
           patient: patient
@@ -184,7 +198,11 @@ export default function DoctorPrescriptions() {
 
           const name = prescription.patient?.name?.toLowerCase() ?? '';
           const email = prescription.patient?.email?.toLowerCase() ?? '';
-          return name.includes(normalizedSearch) || email.includes(normalizedSearch);
+          const medicines = getPrescriptionMedicineLines(prescription)
+            .map((medicine) => medicine.name)
+            .join(' ')
+            .toLowerCase();
+          return name.includes(normalizedSearch) || email.includes(normalizedSearch) || medicines.includes(normalizedSearch);
         });
     },
     [patientFilter, patientSearch, prescriptions],
@@ -214,13 +232,13 @@ export default function DoctorPrescriptions() {
             <div className="space-y-4">
               <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_260px]">
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">Search patient</p>
+                  <p className="text-sm font-medium">Search</p>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={patientSearch}
                       onChange={(event) => setPatientSearch(event.target.value)}
-                      placeholder="Search by name or email"
+                      placeholder="Search patient, email, or medicine"
                       className="pl-9"
                     />
                   </div>
@@ -252,8 +270,6 @@ export default function DoctorPrescriptions() {
               {filteredPrescriptions.map((prescription) => {
                 const medicineLines = getPrescriptionMedicineLines(prescription);
                 const expanded = expandedPrescriptions[prescription.id] ?? false;
-                const firstMedicine = medicineLines[0];
-                const hasMoreDetails = medicineLines.length > 1 || Boolean(prescription.notes);
 
                 return (
                   <div
@@ -266,22 +282,17 @@ export default function DoctorPrescriptions() {
                       </div>
                       <div className="min-w-0 flex-1 space-y-3">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <h3 className="text-lg font-semibold">Prescription</h3>
+                          <div className="min-w-0">
+                            <h3 className="truncate text-lg font-semibold">{prescription.patient?.name || 'Patient'}</h3>
+                            {prescription.patient?.email && (
+                              <p className="truncate text-sm text-muted-foreground">{prescription.patient.email}</p>
+                            )}
+                          </div>
                           <span className="text-sm text-muted-foreground">
-                            {new Date(prescription.created_at).toLocaleDateString()}
+                            Prescribed {new Date(prescription.created_at).toLocaleString()}
                           </span>
                         </div>
-                        <div className="grid gap-2 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-2">
-                          <div className="flex min-w-0 gap-2">
-                            <User className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                            <div className="min-w-0">
-                              <p className="text-xs text-muted-foreground">Patient</p>
-                              <p className="font-medium truncate">{prescription.patient?.name || 'Patient'}</p>
-                              {prescription.patient?.email && (
-                                <p className="truncate text-xs text-muted-foreground">{prescription.patient.email}</p>
-                              )}
-                            </div>
-                          </div>
+                        <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 text-sm md:grid-cols-2">
                           <div className="flex min-w-0 gap-2">
                             <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                             <div className="min-w-0">
@@ -297,59 +308,130 @@ export default function DoctorPrescriptions() {
                               </div>
                             </div>
                           </div>
-                        </div>
-                        {firstMedicine && (
-                          <div className="rounded-lg border p-3 text-sm">
-                            <p className="font-medium">
-                              1. {firstMedicine.name}
-                              {firstMedicine.dose ? <span className="text-muted-foreground"> - {firstMedicine.dose}</span> : null}
-                            </p>
-                            {firstMedicine.frequency && (
-                              <p className="mt-1 text-muted-foreground">Frequency: {firstMedicine.frequency}</p>
-                            )}
-                            {firstMedicine.duration && (
-                              <p className="text-muted-foreground">Duration: {firstMedicine.duration}</p>
-                            )}
+                          <div className="flex min-w-0 gap-2">
+                            <Activity className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                            <div className="min-w-0">
+                              <p className="text-xs text-muted-foreground">Clinical Context</p>
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                {typeof prescription.report?.confidence === 'number' && (
+                                  <Badge variant="outline">{prescription.report.confidence}% Confidence</Badge>
+                                )}
+                                {prescription.report?.status && (
+                                  <Badge variant="secondary" className="capitalize">Report {prescription.report.status}</Badge>
+                                )}
+                                {prescription.caseStatus && (
+                                  <Badge variant="secondary" className="capitalize">Case {prescription.caseStatus}</Badge>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">
+                            {medicineLines.length} medicine{medicineLines.length === 1 ? '' : 's'}
+                          </Badge>
+                          {/* {medicineLines[0] && (
+                            <span className="text-sm text-muted-foreground">
+                              First medicine: {medicineLines[0].name}
+                            </span>
+                          )} */}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full sm:w-auto"
+                          onClick={() => setExpandedPrescriptions((current) => ({
+                            ...current,
+                            [prescription.id]: !expanded,
+                          }))}
+                        >
+                          {expanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
+                          {expanded ? 'Hide Details' : 'Show More'}
+                        </Button>
                         {expanded && (
                           <div className="space-y-3">
-                            {medicineLines.slice(1).map((medicine, index) => (
-                              <div key={`${medicine.name}-${index + 1}`} className="rounded-lg border p-3 text-sm">
-                                <p className="font-medium">
-                                  {index + 2}. {medicine.name}
-                                  {medicine.dose ? <span className="text-muted-foreground"> - {medicine.dose}</span> : null}
-                                </p>
-                                {medicine.frequency && (
-                                  <p className="mt-1 text-muted-foreground">Frequency: {medicine.frequency}</p>
-                                )}
-                                {medicine.duration && (
-                                  <p className="text-muted-foreground">Duration: {medicine.duration}</p>
-                                )}
+                            <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+                              <div className="flex min-w-0 gap-2">
+                                <Hash className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <div className="min-w-0">
+                                  <p className="text-xs text-muted-foreground">Reference IDs</p>
+                                  <p className="truncate font-mono text-xs">Rx {prescription.id.slice(0, 8)}</p>
+                                  {prescription.report?.id && (
+                                    <p className="truncate font-mono text-xs text-muted-foreground">
+                                      Report {prescription.report.id.slice(0, 8)}
+                                    </p>
+                                  )}
+                                  {prescription.caseId && (
+                                    <p className="truncate font-mono text-xs text-muted-foreground">
+                                      Case {prescription.caseId.slice(0, 8)}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
-                            ))}
-                            {prescription.notes && (
-                              <div className="p-3 rounded-lg bg-muted">
-                                <span className="text-sm font-medium">Notes:</span>
-                                <p className="mt-1 text-sm text-muted-foreground">{prescription.notes}</p>
+                            </div>
+                            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 text-sm md:grid-cols-3">
+                              <div className="flex min-w-0 gap-2">
+                                <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <div className="min-w-0">
+                                  <p className="text-xs text-muted-foreground">Prescription Date</p>
+                                  <p className="font-medium">{new Date(prescription.created_at).toLocaleString()}</p>
+                                </div>
                               </div>
-                            )}
+                              {prescription.caseRequestedAt && (
+                                <div className="min-w-0">
+                                  <p className="text-xs text-muted-foreground">Case Requested</p>
+                                  <p className="font-medium">{new Date(prescription.caseRequestedAt).toLocaleString()}</p>
+                                </div>
+                              )}
+                              {prescription.report?.createdAt && (
+                                <div className="min-w-0">
+                                  <p className="text-xs text-muted-foreground">Report Uploaded</p>
+                                  <p className="font-medium">{new Date(prescription.report.createdAt).toLocaleString()}</p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="font-medium">Medicines</p>
+                                <Badge variant="outline">
+                                  {medicineLines.length} medicine{medicineLines.length === 1 ? '' : 's'}
+                                </Badge>
+                              </div>
+                              {medicineLines.length === 0 ? (
+                                <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                                  No medicine details were saved for this prescription.
+                                </div>
+                              ) : (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  {medicineLines.map((medicine, index) => (
+                                    <div key={`${medicine.name}-${index}`} className="rounded-lg border p-3 text-sm">
+                                      <p className="font-medium">
+                                        {index + 1}. {medicine.name}
+                                        {medicine.dose ? <span className="text-muted-foreground"> - {medicine.dose}</span> : null}
+                                      </p>
+                                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Frequency</p>
+                                          <p>{medicine.frequency || 'Not specified'}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Duration</p>
+                                          <p>{medicine.duration || 'Not specified'}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {prescription.notes && (
+                                <div className="rounded-lg bg-muted p-3">
+                                  <span className="text-sm font-medium">Doctor Notes</span>
+                                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{prescription.notes}</p>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        )}
-                        {hasMoreDetails && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            onClick={() => setExpandedPrescriptions((current) => ({
-                              ...current,
-                              [prescription.id]: !expanded,
-                            }))}
-                          >
-                            {expanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
-                            {expanded ? 'Hide Details' : 'Show More'}
-                          </Button>
                         )}
                       </div>
                     </div>
