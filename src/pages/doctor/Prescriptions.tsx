@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
-import { ClipboardList, FileText, Pill, User } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, ClipboardList, FileText, Pill, Search, User } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { getPrescriptionMedicineLines } from '@/lib/prescriptions';
@@ -36,6 +39,9 @@ export default function DoctorPrescriptions() {
   const { user } = useAuth();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
+  const [patientFilter, setPatientFilter] = useState('all');
+  const [patientSearch, setPatientSearch] = useState('');
+  const [expandedPrescriptions, setExpandedPrescriptions] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (user) {
@@ -151,6 +157,39 @@ export default function DoctorPrescriptions() {
     setLoading(false);
   };
 
+  const patientFilterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const prescription of prescriptions) {
+      if (prescription.patient?.id && !map.has(prescription.patient.id)) {
+        map.set(prescription.patient.id, prescription.patient.name || prescription.patient.email || 'Patient');
+      }
+    }
+
+    return [...map.entries()]
+      .map(([patientId, label]) => ({ patientId, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [prescriptions]);
+
+  const filteredPrescriptions = useMemo(
+    () => {
+      const normalizedSearch = patientSearch.trim().toLowerCase();
+
+      return prescriptions
+        .filter((prescription) => patientFilter === 'all' || prescription.patient?.id === patientFilter)
+        .filter((prescription) => {
+          if (!normalizedSearch) {
+            return true;
+          }
+
+          const name = prescription.patient?.name?.toLowerCase() ?? '';
+          const email = prescription.patient?.email?.toLowerCase() ?? '';
+          return name.includes(normalizedSearch) || email.includes(normalizedSearch);
+        });
+    },
+    [patientFilter, patientSearch, prescriptions],
+  );
+
   return (
     <DashboardLayout 
       title="My Prescriptions" 
@@ -173,20 +212,60 @@ export default function DoctorPrescriptions() {
             </div>
           ) : (
             <div className="space-y-4">
-              {prescriptions.map((prescription) => {
+              <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_260px]">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Search patient</p>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={patientSearch}
+                      onChange={(event) => setPatientSearch(event.target.value)}
+                      placeholder="Search by name or email"
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Filter by patient</p>
+                  <Select value={patientFilter} onValueChange={setPatientFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All patients" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All patients</SelectItem>
+                      {patientFilterOptions.map((patient) => (
+                        <SelectItem key={patient.patientId} value={patient.patientId}>
+                          {patient.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {filteredPrescriptions.length === 0 && (
+                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
+                  No prescriptions found for this patient.
+                </div>
+              )}
+
+              {filteredPrescriptions.map((prescription) => {
                 const medicineLines = getPrescriptionMedicineLines(prescription);
+                const expanded = expandedPrescriptions[prescription.id] ?? false;
+                const firstMedicine = medicineLines[0];
+                const hasMoreDetails = medicineLines.length > 1 || Boolean(prescription.notes);
 
                 return (
                   <div
                     key={prescription.id}
-                    className="p-6 rounded-xl border bg-card"
+                    className="rounded-xl border bg-card p-4 sm:p-6"
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 rounded-lg bg-primary/10">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <div className="w-fit rounded-lg bg-primary/10 p-3">
                         <Pill className="h-6 w-6 text-primary" />
                       </div>
-                      <div className="flex-1 space-y-3">
-                        <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <h3 className="text-lg font-semibold">Prescription</h3>
                           <span className="text-sm text-muted-foreground">
                             {new Date(prescription.created_at).toLocaleDateString()}
@@ -198,6 +277,9 @@ export default function DoctorPrescriptions() {
                             <div className="min-w-0">
                               <p className="text-xs text-muted-foreground">Patient</p>
                               <p className="font-medium truncate">{prescription.patient?.name || 'Patient'}</p>
+                              {prescription.patient?.email && (
+                                <p className="truncate text-xs text-muted-foreground">{prescription.patient.email}</p>
+                              )}
                             </div>
                           </div>
                           <div className="flex min-w-0 gap-2">
@@ -216,25 +298,58 @@ export default function DoctorPrescriptions() {
                             </div>
                           </div>
                         </div>
-                        {medicineLines.map((medicine, index) => (
-                          <div key={`${medicine.name}-${index}`} className="rounded-lg border p-3 text-sm">
+                        {firstMedicine && (
+                          <div className="rounded-lg border p-3 text-sm">
                             <p className="font-medium">
-                              {index + 1}. {medicine.name}
-                              {medicine.dose ? <span className="text-muted-foreground"> - {medicine.dose}</span> : null}
+                              1. {firstMedicine.name}
+                              {firstMedicine.dose ? <span className="text-muted-foreground"> - {firstMedicine.dose}</span> : null}
                             </p>
-                            {medicine.frequency && (
-                              <p className="mt-1 text-muted-foreground">Frequency: {medicine.frequency}</p>
+                            {firstMedicine.frequency && (
+                              <p className="mt-1 text-muted-foreground">Frequency: {firstMedicine.frequency}</p>
                             )}
-                            {medicine.duration && (
-                              <p className="text-muted-foreground">Duration: {medicine.duration}</p>
+                            {firstMedicine.duration && (
+                              <p className="text-muted-foreground">Duration: {firstMedicine.duration}</p>
                             )}
                           </div>
-                        ))}
-                        {prescription.notes && (
-                          <div className="p-3 rounded-lg bg-muted">
-                            <span className="text-sm font-medium">Notes:</span>
-                            <p className="mt-1 text-sm text-muted-foreground">{prescription.notes}</p>
+                        )}
+                        {expanded && (
+                          <div className="space-y-3">
+                            {medicineLines.slice(1).map((medicine, index) => (
+                              <div key={`${medicine.name}-${index + 1}`} className="rounded-lg border p-3 text-sm">
+                                <p className="font-medium">
+                                  {index + 2}. {medicine.name}
+                                  {medicine.dose ? <span className="text-muted-foreground"> - {medicine.dose}</span> : null}
+                                </p>
+                                {medicine.frequency && (
+                                  <p className="mt-1 text-muted-foreground">Frequency: {medicine.frequency}</p>
+                                )}
+                                {medicine.duration && (
+                                  <p className="text-muted-foreground">Duration: {medicine.duration}</p>
+                                )}
+                              </div>
+                            ))}
+                            {prescription.notes && (
+                              <div className="p-3 rounded-lg bg-muted">
+                                <span className="text-sm font-medium">Notes:</span>
+                                <p className="mt-1 text-sm text-muted-foreground">{prescription.notes}</p>
+                              </div>
+                            )}
                           </div>
+                        )}
+                        {hasMoreDetails && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-full sm:w-auto"
+                            onClick={() => setExpandedPrescriptions((current) => ({
+                              ...current,
+                              [prescription.id]: !expanded,
+                            }))}
+                          >
+                            {expanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
+                            {expanded ? 'Hide Details' : 'Show More'}
+                          </Button>
                         )}
                       </div>
                     </div>

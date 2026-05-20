@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Eye, FileText, Mail, Users } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Eye, FileText, Mail, Search, Users } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
 import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
 import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
@@ -42,6 +44,9 @@ export default function DoctorCases() {
   const [selectedCaseUrl, setSelectedCaseUrl] = useState<string | null>(null);
   const [selectedCaseLoading, setSelectedCaseLoading] = useState(false);
   const [caseTimelines, setCaseTimelines] = useState<Record<string, CaseTimelineItem[]>>({});
+  const [patientFilter, setPatientFilter] = useState('all');
+  const [patientSearch, setPatientSearch] = useState('');
+  const [visibleTimelines, setVisibleTimelines] = useState<Record<string, boolean>>({});
 
   const assignedPatientIds = useMemo(
     () => [...new Set(cases.map((caseItem) => caseItem.patient_id))],
@@ -316,11 +321,41 @@ export default function DoctorCases() {
       map.set(caseItem.patient_id, current);
     }
 
-    return [...map.entries()].map(([patientId, patientCases]) => ({
-      patientId,
-      patientProfile: patientCases[0]?.patient_profile,
-      cases: patientCases,
-    }));
+    const normalizedSearch = patientSearch.trim().toLowerCase();
+
+    return [...map.entries()]
+      .map(([patientId, patientCases]) => ({
+        patientId,
+        patientProfile: patientCases[0]?.patient_profile,
+        cases: patientCases,
+      }))
+      .filter((group) => patientFilter === 'all' || group.patientId === patientFilter)
+      .filter((group) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+
+        const name = group.patientProfile?.full_name?.toLowerCase() ?? '';
+        const email = group.patientProfile?.email?.toLowerCase() ?? '';
+        return name.includes(normalizedSearch) || email.includes(normalizedSearch);
+      });
+  }, [cases, patientFilter, patientSearch]);
+
+  const patientFilterOptions = useMemo(() => {
+    const map = new Map<string, PatientProfile | undefined>();
+
+    for (const caseItem of cases) {
+      if (!map.has(caseItem.patient_id)) {
+        map.set(caseItem.patient_id, caseItem.patient_profile);
+      }
+    }
+
+    return [...map.entries()]
+      .map(([patientId, profile]) => ({
+        patientId,
+        label: profile?.full_name || profile?.email || 'Patient',
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [cases]);
 
   return (
@@ -345,10 +380,48 @@ export default function DoctorCases() {
             </div>
           ) : (
             <div className="space-y-6">
+              <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_260px]">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Search patient</p>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={patientSearch}
+                      onChange={(event) => setPatientSearch(event.target.value)}
+                      placeholder="Search by name or email"
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Filter by patient</p>
+                  <Select value={patientFilter} onValueChange={setPatientFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All patients" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All patients</SelectItem>
+                      {patientFilterOptions.map((patient) => (
+                        <SelectItem key={patient.patientId} value={patient.patientId}>
+                          {patient.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {groupedCases.length === 0 && (
+                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
+                  No assigned cases found for this patient.
+                </div>
+              )}
+
               {groupedCases.map((group) => {
                 const latestCase = group.cases[0];
                 const canDownload = latestCase ? canRunCaseReportAction(latestCase, 'download') : false;
                 const canView = latestCase ? canRunCaseReportAction(latestCase, 'view') : false;
+                const timelineVisible = visibleTimelines[group.patientId] ?? false;
 
                 return (
                 <div
@@ -360,31 +433,54 @@ export default function DoctorCases() {
                       <div className="p-3 rounded-lg bg-primary/10">
                         <FileText className="h-6 w-6 text-primary" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{group.patientProfile?.full_name || 'Patient'}</p>
+                        {group.patientProfile?.email && (
+                          <p className="truncate text-sm text-muted-foreground">{group.patientProfile.email}</p>
+                        )}
                         <p className="text-sm text-muted-foreground">
                           {group.cases.length} report{group.cases.length === 1 ? '' : 's'} in this case history
                         </p>
                       </div>
                     </div>
                     {latestCase && (
-                      <div className="flex items-center gap-2">
+                      <div className="grid gap-2 sm:grid-cols-3 lg:flex lg:items-center">
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full"
                           onClick={() => void handleDownloadCaseReport(latestCase)}
                           disabled={!latestCase.mri_report || !canDownload}
                         >
                           <Download className="h-4 w-4 mr-2" />
                           Latest PDF
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => void openSelectedCase(latestCase)} disabled={!canView}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => void openSelectedCase(latestCase)}
+                          disabled={!canView}
+                        >
                           <Eye className="h-4 w-4 mr-2" />
                           Review Latest
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setVisibleTimelines((current) => ({
+                            ...current,
+                            [group.patientId]: !timelineVisible,
+                          }))}
+                        >
+                          {timelineVisible ? <ChevronUp className="h-4 w-4 mr-2" /> : <ChevronDown className="h-4 w-4 mr-2" />}
+                          {timelineVisible ? 'Hide Details' : 'Show More'}
                         </Button>
                       </div>
                     )}
                   </div>
+                  {timelineVisible && (
                   <div className="mt-4">
                     <CaseTimeline
                       items={caseTimelines[group.patientId] ?? []}
@@ -392,6 +488,7 @@ export default function DoctorCases() {
                       onDownloadReport={(item) => void downloadTimelineCaseReport(item)}
                     />
                   </div>
+                  )}
                 </div>
                 );
               })}

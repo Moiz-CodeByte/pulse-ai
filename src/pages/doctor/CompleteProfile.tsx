@@ -39,6 +39,7 @@ export default function DoctorCompleteProfile() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [checkingProfile, setCheckingProfile] = useState(true);
+  const [profileCompleted, setProfileCompleted] = useState(false);
   const [formData, setFormData] = useState({
     medical_license_number: '',
     specialization: '',
@@ -129,14 +130,10 @@ export default function DoctorCompleteProfile() {
       console.error('Error checking profile:', error);
     } else if (data) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((data as any).profile_completed) {
-        // Profile already completed, redirect to dashboard
-        navigate('/doctor');
-        return;
-      }
       // Load existing data
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const doctorData = data as any;
+      setProfileCompleted(Boolean(doctorData.profile_completed));
       setFormData({
         medical_license_number: doctorData.medical_license_number || '',
         specialization: doctorData.specialization || '',
@@ -268,7 +265,7 @@ export default function DoctorCompleteProfile() {
       if (error) throw error;
 
       toast({
-        title: 'Profile completed!',
+        title: profileCompleted ? 'Profile updated!' : 'Profile completed!',
         description: isVerified 
           ? 'Your professional information has been saved successfully.'
           : 'Your profile is complete. Please wait for admin verification to access all features.',
@@ -308,9 +305,13 @@ export default function DoctorCompleteProfile() {
       <div className="min-h-screen bg-background pt-20 pb-8 px-4">
         <div className="max-w-4xl mx-auto">
           <div className="mb-8 text-center">
-            <h1 className="text-3xl font-bold text-foreground mb-2">Complete Your Professional Profile</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-2">
+              {profileCompleted ? 'My Professional Profile' : 'Complete Your Professional Profile'}
+            </h1>
             <p className="text-muted-foreground">
-              Please provide your professional information to complete your doctor profile
+              {profileCompleted
+                ? 'Review and update your professional information'
+                : 'Please provide your professional information to complete your doctor profile'}
             </p>
           {!isVerified && (
             <Alert className="mb-6">
@@ -658,7 +659,7 @@ export default function DoctorCompleteProfile() {
                   Saving...
                 </>
               ) : (
-                'Complete Profile'
+                profileCompleted ? 'Save Profile' : 'Complete Profile'
               )}
             </Button>
           </div>

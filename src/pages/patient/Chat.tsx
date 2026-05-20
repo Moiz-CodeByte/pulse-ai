@@ -143,7 +143,7 @@ function ChannelListItem({
             </span>
           )}
           {item.lastMessageText && (
-            <p className="text-xs text-muted-foreground mt-1 truncate">
+            <p className="text-xs text-muted-foreground mt-1 truncate  dark:text-muted-foreground/80">
               <FormattedChatText text={item.lastMessageText} />
             </p>
           )}
@@ -862,8 +862,6 @@ export default function PatientChat() {
                 <ChatChannelPreview
                   key={item.id}
                   title={item.doctorName || 'Doctor'}
-                  subtitle={item.reportName || 'Consultation'}
-                  risk={item.reportRisk}
                   lastMessageText={item.lastMessageText}
                   lastMessageAt={item.lastMessageAt}
                   unread={item.unread}
@@ -886,12 +884,6 @@ export default function PatientChat() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-sm truncate">{activeItem.doctorName || 'Doctor'}</p>
-                  <p className="text-xs text-muted-foreground truncate">{activeItem.reportName}</p>
-                  {activeItem.reportRisk && (
-                    <span className="text-xs text-muted-foreground">
-                      Risk: {activeItem.reportRisk.toUpperCase()}
-                    </span>
-                  )}
                 </div>
                 <Button
                   type="button"
