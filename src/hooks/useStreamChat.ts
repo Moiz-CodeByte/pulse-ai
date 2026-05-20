@@ -2,7 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { StreamChat, type OwnUserResponse } from 'stream-chat';
 import { useAuth } from '@/hooks/useAuth';
 
-const FLASK_BASE = import.meta.env.VITE_MRI_ANALYSIS_API_URL ?? 'http://localhost:5000';
+const DEFAULT_FLASK_BASE = 'http://localhost:5000';
+
+function normalizeApiUrl(value: string | undefined): string {
+  const cleaned = (value || DEFAULT_FLASK_BASE)
+    .trim()
+    .replace(/^["']+|["']+$/g, '')
+    .replace(/^https:\/(?!\/)/i, 'https://')
+    .replace(/^http:\/(?!\/)/i, 'http://');
+
+  return cleaned.replace(/\/+$/, '');
+}
+
+const FLASK_BASE = normalizeApiUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL);
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY ?? '';
 
 export interface StreamChatState {
