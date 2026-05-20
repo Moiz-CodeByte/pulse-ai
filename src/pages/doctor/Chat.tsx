@@ -3,6 +3,8 @@ import type { Channel as StreamChannel } from 'stream-chat';
 import {
   AlertCircle,
   ClipboardPlus,
+  Download,
+  ExternalLink,
   FileText,
   Loader2,
   MessageSquare,
@@ -16,6 +18,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { FormattedChatText } from '@/components/chat/FormattedChatText';
+import { ChatChannelPreview } from '@/components/chat/ChatChannelPreview';
+import { ChatMessageBubble } from '@/components/chat/ChatMessageBubble';
 import {
   Dialog,
   DialogContent,
@@ -25,14 +30,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useStreamChat } from '@/hooks/useStreamChat';
 import { useToast } from '@/hooks/use-toast';
+import { buildSequenceMap, formatReportLabel } from '@/lib/caseLabels';
 
-/* â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 interface ChatMsg {
   id: string;
   text: string;
@@ -48,6 +54,8 @@ interface ChannelItem {
   reportName: string;
   reportRisk: string;
   reportId: string;
+  reportUrl: string;
+  reportDownloadUrl: string;
   consultationId: string;
   patientId: string;
   patientName: string;
@@ -64,7 +72,15 @@ interface MedEntry {
   duration: string;
 }
 
-/* â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+interface PrescribableReport {
+  reportId: string;
+  diagnosisId: string;
+  fileName: string;
+  label: string;
+  createdAt: string;
+  riskLevel?: string | null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toMsg(m: any): ChatMsg {
   return {
@@ -85,6 +101,7 @@ function toChannelItem(ch: StreamChannel, myUserId: string): ChannelItem {
   const patientId = memberIds.find((id) => id !== myUserId) ?? '';
   const patientMember = ch.state.members?.[patientId];
   const patientName =
+    (data.patient_name as string) ||
     (patientMember?.user?.name as string) ||
     (patientMember?.user?.id as string) ||
     patientId ||
@@ -95,6 +112,8 @@ function toChannelItem(ch: StreamChannel, myUserId: string): ChannelItem {
     reportName: (data.report_name as string) || 'Consultation',
     reportRisk: (data.report_risk as string) || '',
     reportId: (data.report_id as string) || '',
+    reportUrl: (data.report_url as string) || '',
+    reportDownloadUrl: (data.report_download_url as string) || '',
     consultationId: (data.consultation_id as string) || '',
     patientId,
     patientName,
@@ -108,13 +127,119 @@ function toChannelItem(ch: StreamChannel, myUserId: string): ChannelItem {
   };
 }
 
+function getConsultationIdFromChannel(item: Pick<ChannelItem, 'id' | 'consultationId'>): string {
+  if (item.consultationId) {
+    return item.consultationId;
+  }
+
+  return item.id.startsWith('consultation-') ? item.id.replace(/^consultation-/, '') : '';
+}
+
+async function hydrateChannelItems(items: ChannelItem[]): Promise<ChannelItem[]> {
+  const missingReportItems = items.filter((item) => !item.reportId && getConsultationIdFromChannel(item));
+
+  if (!missingReportItems.length) {
+    return items;
+  }
+
+  const consultationIds = [...new Set(missingReportItems.map(getConsultationIdFromChannel))];
+  // @ts-expect-error - consultation_requests table not yet in generated types
+  const consultationQuery = supabase.from('consultation_requests');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: consultations, error } = await (consultationQuery as any)
+    .select('id, report_id')
+    .in('id', consultationIds);
+
+  if (error || !consultations?.length) {
+    return items;
+  }
+
+  const consultationMap = new Map(
+    (consultations as Array<{ id: string; report_id: string }>).map((consultation) => [
+      consultation.id,
+      consultation.report_id,
+    ]),
+  );
+  const reportIds = [...new Set([...consultationMap.values()])];
+  const { data: reports } = await supabase
+    .from('mri_reports')
+    .select('id, file_name')
+    .in('id', reportIds);
+  const reportNameMap = new Map((reports ?? []).map((report) => [report.id, report.file_name]));
+
+  return items.map((item) => {
+    if (item.reportId) {
+      return item;
+    }
+
+    const consultationId = getConsultationIdFromChannel(item);
+    const reportId = consultationMap.get(consultationId) ?? '';
+
+    if (!reportId) {
+      return item;
+    }
+
+    return {
+      ...item,
+      consultationId,
+      reportId,
+      reportName: item.reportName === 'Consultation' ? reportNameMap.get(reportId) ?? item.reportName : item.reportName,
+    };
+  });
+}
+
+function dedupePatientChannels(items: ChannelItem[]): ChannelItem[] {
+  const byPatient = new Map<string, ChannelItem>();
+
+  for (const item of items) {
+    const key = item.patientId || item.id;
+    const current = byPatient.get(key);
+
+    if (!current || (item.lastMessageAt?.getTime() ?? 0) > (current.lastMessageAt?.getTime() ?? 0)) {
+      byPatient.set(key, item);
+    }
+  }
+
+  return [...byPatient.values()].sort(
+    (a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0),
+  );
+}
+
+function renderMessageText(text: string) {
+  const cleanedText = text
+    .replace(/ðŸ“‹\s*/g, '')
+    .replace(/â€”/g, '-')
+    .replace(/^Prescription$/m, 'Prescription');
+  const parts = cleanedText.split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, index) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={`${part}-${index}`}
+        href={part}
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium underline underline-offset-2"
+      >
+        {part}
+      </a>
+    ) : part.split(/(\*\*[^*]+\*\*)/g).map((piece, pieceIndex) =>
+      piece.startsWith('**') && piece.endsWith('**') ? (
+        <strong key={`${index}-${pieceIndex}`} className="font-semibold">
+          {piece.slice(2, -2)}
+        </strong>
+      ) : (
+        <span key={`${index}-${pieceIndex}`}>{piece}</span>
+      ),
+    ),
+  );
+}
+
 const riskColor: Record<string, string> = {
   high: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
   low: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 };
 
-/* â”€â”€ Channel List Item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function ChannelListItem({
   item,
   active,
@@ -148,7 +273,9 @@ function ChannelListItem({
             </span>
           )}
           {item.lastMessageText && (
-            <p className="text-xs text-muted-foreground mt-1 truncate">{item.lastMessageText}</p>
+            <p className="text-xs text-muted-foreground mt-1 truncate">
+              <FormattedChatText text={item.lastMessageText} />
+            </p>
           )}
         </div>
         <div className="shrink-0 flex flex-col items-end gap-1">
@@ -168,13 +295,12 @@ function ChannelListItem({
   );
 }
 
-/* â”€â”€ Message Bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function MessageBubble({ msg, isOwn }: { msg: ChatMsg; isOwn: boolean }) {
   if (msg.isSystem) {
     return (
       <div className="flex justify-center my-2">
-        <div className="bg-muted/60 text-muted-foreground text-xs px-4 py-2 rounded-full max-w-md text-center whitespace-pre-wrap">
-          {msg.text}
+        <div className="bg-muted/60 text-muted-foreground text-xs px-4 py-2 rounded-full max-w-md text-center whitespace-pre-wrap break-words">
+          <FormattedChatText text={msg.text} />
         </div>
       </div>
     );
@@ -191,7 +317,7 @@ function MessageBubble({ msg, isOwn }: { msg: ChatMsg; isOwn: boolean }) {
               : 'bg-card border border-border text-card-foreground rounded-bl-sm',
           )}
         >
-          {msg.text}
+          <FormattedChatText text={msg.text} />
         </div>
         <span className="text-[11px] text-muted-foreground mt-1 mx-1">
           {format(msg.createdAt, 'HH:mm')}
@@ -201,27 +327,114 @@ function MessageBubble({ msg, isOwn }: { msg: ChatMsg; isOwn: boolean }) {
   );
 }
 
-/* â”€â”€ Prescription Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function PrescriptionDialog({
   open,
   onClose,
   channel,
+  patientId,
+  patientName,
   reportId,
+  reportName,
 }: {
   open: boolean;
   onClose: () => void;
   channel: StreamChannel | null;
   patientId: string;
+  patientName: string;
   reportId: string;
+  reportName: string;
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const nextId = useRef(2);
+  const [reportOptions, setReportOptions] = useState<PrescribableReport[]>([]);
+  const [selectedReportId, setSelectedReportId] = useState(reportId);
+  const [loadingReports, setLoadingReports] = useState(false);
   const [meds, setMeds] = useState<MedEntry[]>([
     { id: 1, name: '', dosage: '', frequency: '', duration: '' },
   ]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSelectedReportId(reportId);
+  }, [reportId]);
+
+  useEffect(() => {
+    if (!open || !user || !patientId) {
+      setReportOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingReports(true);
+
+    async function loadReports() {
+      // @ts-expect-error - consultation_requests table not yet in generated types
+      const consultationQuery = supabase.from('consultation_requests');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: consultations, error: consultationError } = await (consultationQuery as any)
+        .select('report_id, created_at')
+        .eq('doctor_id', user.id)
+        .eq('patient_id', patientId)
+        .eq('status', 'accepted')
+        .order('created_at', { ascending: false });
+
+      if (cancelled) return;
+
+      if (consultationError || !consultations?.length) {
+        setReportOptions([]);
+        setLoadingReports(false);
+        return;
+      }
+
+      const reportIds = [...new Set((consultations as Array<{ report_id: string }>).map((item) => item.report_id))];
+      const { data: reports } = await supabase
+        .from('mri_reports')
+        .select(`
+          id,
+          file_name,
+          created_at,
+          diagnosis (
+            id,
+            risk_level
+          )
+        `)
+        .in('id', reportIds);
+
+      if (cancelled) return;
+
+      const options = (reports ?? [])
+        .map((report) => {
+          const diagnosis = Array.isArray(report.diagnosis) ? report.diagnosis[0] : report.diagnosis;
+          return diagnosis?.id
+            ? {
+                reportId: report.id,
+                diagnosisId: diagnosis.id,
+                fileName: report.file_name,
+                label: formatReportLabel({
+                  patientName,
+                  reportNumber: buildSequenceMap(reports ?? []).get(report.id),
+                }),
+                createdAt: report.created_at,
+                riskLevel: diagnosis.risk_level,
+              }
+            : null;
+        })
+        .filter(Boolean) as PrescribableReport[];
+
+      options.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setReportOptions(options);
+      setSelectedReportId((current) => current || options[0]?.reportId || '');
+      setLoadingReports(false);
+    }
+
+    void loadReports();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, patientId, patientName, user, reportId]);
 
   function addMed() {
     setMeds((p) => [...p, { id: nextId.current++, name: '', dosage: '', frequency: '', duration: '' }]);
@@ -239,22 +452,29 @@ function PrescriptionDialog({
       toast({ title: 'Add at least one medicine', variant: 'destructive' });
       return;
     }
-    if (!reportId) {
+    if (!selectedReportId) {
       toast({ title: 'No report linked to this consultation', variant: 'destructive' });
       return;
     }
     setSaving(true);
     try {
-      const { data: diagRow, error: diagErr } = await supabase
-        .from('diagnosis')
-        .select('id')
-        .eq('report_id', reportId)
-        .maybeSingle();
-      if (diagErr) throw diagErr;
-      if (!diagRow) throw new Error('Diagnosis record not found for this report.');
+      const selectedReport = reportOptions.find((option) => option.reportId === selectedReportId);
+      let diagnosisId = selectedReport?.diagnosisId;
+
+      if (!diagnosisId) {
+        const { data: diagRow, error: diagErr } = await supabase
+          .from('diagnosis')
+          .select('id')
+          .eq('report_id', selectedReportId)
+          .maybeSingle();
+        if (diagErr) throw diagErr;
+        diagnosisId = diagRow?.id;
+      }
+
+      if (!diagnosisId) throw new Error('Diagnosis record not found for this report.');
 
       const { error: rxErr } = await supabase.from('prescriptions').insert({
-        diagnosis_id: diagRow.id,
+        diagnosis_id: diagnosisId,
         doctor_id: user!.id,
         medicine: valid.map((m) => `${m.name}${m.dosage ? ` (${m.dosage})` : ''}`).join(', '),
         dosage: valid.map((m) => m.frequency).filter(Boolean).join('; ') || undefined,
@@ -267,16 +487,18 @@ function PrescriptionDialog({
       if (rxErr) throw rxErr;
 
       if (channel) {
+        const selectedReportLabel = selectedReport?.label || reportName || 'MRI report';
         const prescText = [
-          'ðŸ“‹ **Prescription**',
+          `Prescription for ${selectedReportLabel}`,
+          patientName ? `Patient: ${patientName}` : '',
           '',
           ...valid.map(
             (m, i) =>
-              `${i + 1}. **${m.name}**${m.dosage ? ` â€” ${m.dosage}` : ''}` +
+              `${i + 1}. ${m.name}${m.dosage ? ` - ${m.dosage}` : ''}` +
               (m.frequency ? `\n   Frequency: ${m.frequency}` : '') +
               (m.duration ? `\n   Duration: ${m.duration}` : ''),
           ),
-          notes ? `\n**Doctor's Notes:** ${notes}` : '',
+          notes ? `\nDoctor's Notes: ${notes}` : '',
         ]
           .filter(Boolean)
           .join('\n');
@@ -308,6 +530,32 @@ function PrescriptionDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 mt-2">
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+            <div>
+              <Label className="text-xs">Patient</Label>
+              <p className="mt-1 text-sm font-medium">{patientName || 'Patient'}</p>
+            </div>
+            <div>
+              <Label className="text-xs">Report / Case *</Label>
+              <Select value={selectedReportId} onValueChange={setSelectedReportId} disabled={loadingReports || saving}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={loadingReports ? 'Loading reports...' : 'Select report'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {reportOptions.map((option) => (
+                    <SelectItem key={option.reportId} value={option.reportId}>
+                      {option.label} - {new Date(option.createdAt).toLocaleDateString()}
+                      {option.riskLevel ? ` - ${option.riskLevel.toUpperCase()} Risk` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!loadingReports && reportOptions.length === 0 && (
+                <p className="mt-1 text-xs text-destructive">No diagnosed reports found for this patient.</p>
+              )}
+            </div>
+          </div>
+
           {meds.map((med, idx) => (
             <Card key={med.id} className="relative">
               <CardHeader className="p-3 pb-0">
@@ -369,7 +617,6 @@ function PrescriptionDialog({
   );
 }
 
-/* â”€â”€ Doctor Chat Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 export default function DoctorChat() {
   const { user } = useAuth();
   const { client, ready, error } = useStreamChat();
@@ -396,12 +643,32 @@ export default function DoctorChat() {
         { limit: 30, state: true, watch: true },
       )
       .then((chans) => {
+        if (cancelled) {
+          return;
+        }
+
+        hydrateChannelItems(chans.map((c) => toChannelItem(c, user.id)))
+          .then((items) => {
+            if (!cancelled) {
+              setChannelItems(dedupePatientChannels(items));
+            }
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setChannelItems(chans.map((c) => toChannelItem(c, user.id)));
+            }
+          })
+          .finally(() => {
+            if (!cancelled) {
+              setLoadingChannels(false);
+            }
+          });
+      })
+      .catch(() => {
         if (!cancelled) {
-          setChannelItems(chans.map((c) => toChannelItem(c, user.id)));
           setLoadingChannels(false);
         }
-      })
-      .catch(() => { if (!cancelled) setLoadingChannels(false); });
+      });
 
     const resort = () => {
       if (!cancelled)
@@ -454,6 +721,17 @@ export default function DoctorChat() {
 
   /* Auto-scroll */
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  useEffect(() => {
+    if (!activeChannel) {
+      return;
+    }
+
+    const updatedItem = channelItems.find((item) => item.id === activeChannel.id);
+    if (updatedItem) {
+      setActiveItem(updatedItem);
+    }
+  }, [activeChannel, channelItems]);
 
   const openChannel = useCallback((item: ChannelItem) => {
     setActiveChannel(item.channel);
@@ -521,9 +799,14 @@ export default function DoctorChat() {
               </div>
             ) : (
               channelItems.map((item) => (
-                <ChannelListItem
+                <ChatChannelPreview
                   key={item.id}
-                  item={item}
+                  title={item.patientName || 'Patient'}
+                  subtitle={item.reportName}
+                  risk={item.reportRisk}
+                  lastMessageText={item.lastMessageText}
+                  lastMessageAt={item.lastMessageAt}
+                  unread={item.unread}
                   active={item.id === activeChannel?.id}
                   onClick={() => openChannel(item)}
                 />
@@ -563,6 +846,20 @@ export default function DoctorChat() {
                       )}
                     </div>
                   </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0" asChild>
+                    <a href={activeItem.reportUrl || '/doctor/cases'} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Report
+                    </a>
+                  </Button>
+                  {activeItem.reportDownloadUrl && (
+                    <Button size="sm" variant="outline" className="gap-1.5 shrink-0" asChild>
+                      <a href={activeItem.reportDownloadUrl} target="_blank" rel="noreferrer">
+                        <Download className="h-3.5 w-3.5" />
+                        File
+                      </a>
+                    </Button>
+                  )}
                   <Button size="sm" onClick={() => setPrescribeOpen(true)} className="gap-1.5 shrink-0">
                     <PillBottle className="h-3.5 w-3.5" />
                     Prescribe
@@ -583,7 +880,7 @@ export default function DoctorChat() {
                   </div>
                 ) : (
                   messages.map((msg) => (
-                    <MessageBubble key={msg.id} msg={msg} isOwn={msg.userId === user?.id} />
+                    <ChatMessageBubble key={msg.id} msg={msg} isOwn={msg.userId === user?.id} />
                   ))
                 )}
                 <div ref={bottomRef} />
@@ -596,7 +893,7 @@ export default function DoctorChat() {
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Type a messageâ€¦ (Enter to send)"
+                    placeholder="Type a message… (Enter to send)"
                     className="resize-none min-h-[40px] max-h-32 flex-1 text-sm"
                     rows={1}
                   />
@@ -632,7 +929,9 @@ export default function DoctorChat() {
         onClose={() => setPrescribeOpen(false)}
         channel={activeChannel}
         patientId={activeItem?.patientId ?? ''}
+        patientName={activeItem?.patientName ?? ''}
         reportId={activeItem?.reportId ?? ''}
+        reportName={activeItem?.reportName ?? ''}
       />
     </DashboardLayout>
   );

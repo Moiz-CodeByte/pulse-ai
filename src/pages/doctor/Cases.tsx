@@ -8,10 +8,12 @@ import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
 import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
 import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { PrescriptionForm } from '@/components/doctor/PrescriptionForm';
+import { CaseTimeline, type CaseTimelineItem } from '@/components/cases/CaseTimeline';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
 import { canUseReportAction } from '@/lib/reportPermissions';
+import { buildSequenceMap, formatCaseLabel, formatReportLabel } from '@/lib/caseLabels';
 
 interface MRIReport extends BaseReportRecord {
   diagnosis?: BaseReportDiagnosis & { id: string };
@@ -39,6 +41,7 @@ export default function DoctorCases() {
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [selectedCaseUrl, setSelectedCaseUrl] = useState<string | null>(null);
   const [selectedCaseLoading, setSelectedCaseLoading] = useState(false);
+  const [caseTimelines, setCaseTimelines] = useState<Record<string, CaseTimelineItem[]>>({});
 
   const assignedPatientIds = useMemo(
     () => [...new Set(cases.map((caseItem) => caseItem.patient_id))],
@@ -80,7 +83,14 @@ export default function DoctorCases() {
               id,
               risk_level,
               confidence,
-              details
+              details,
+              prescriptions (
+                id,
+                medicine,
+                dosage,
+                instructions,
+                notes
+              )
             )
           `)
           .in('id', reportIds),
@@ -111,6 +121,85 @@ export default function DoctorCases() {
       );
 
       const profileMap = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
+      // @ts-expect-error - consultation_requests table not yet in generated types
+      const consultationQuery = supabase.from('consultation_requests');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: consultations } = await (consultationQuery as any)
+        .select('id, patient_id, report_id, patient_message, doctor_notes, status, created_at')
+        .eq('doctor_id', user.id)
+        .eq('status', 'accepted')
+        .in('report_id', reportIds);
+      const consultationByReport = new Map(
+        ((consultations ?? []) as Array<{
+          id: string;
+          patient_id: string;
+          report_id: string;
+          patient_message: string | null;
+          doctor_notes: string | null;
+          status: string;
+          created_at: string;
+        }>).map((consultation) => [consultation.report_id, consultation]),
+      );
+
+      const nextTimelines: Record<string, CaseTimelineItem[]> = {};
+      const reportSequencesByPatient = new Map<string, Map<string, number>>();
+      const caseSequencesByPatient = new Map<string, Map<string, number>>();
+
+      for (const patientId of patientIds) {
+        const patientAssignments = assignments.filter((assignment) => assignment.patient_id === patientId);
+        const patientReportItems = patientAssignments.map((assignment) => {
+          const report = reportMap.get(assignment.report_id);
+          return {
+            id: assignment.report_id,
+            created_at: report?.created_at ?? assignment.assigned_at,
+          };
+        });
+        const patientCaseItems = patientAssignments.map((assignment) => {
+          const consultation = consultationByReport.get(assignment.report_id);
+          return {
+            id: assignment.id,
+            created_at: consultation?.created_at ?? assignment.assigned_at,
+          };
+        });
+
+        reportSequencesByPatient.set(patientId, buildSequenceMap(patientReportItems));
+        caseSequencesByPatient.set(patientId, buildSequenceMap(patientCaseItems));
+      }
+
+      for (const assignment of assignments) {
+        const report = reportMap.get(assignment.report_id);
+        const consultation = consultationByReport.get(assignment.report_id);
+        const profile = profileMap.get(assignment.patient_id);
+        const reportLabel = formatReportLabel({
+          patientName: profile?.full_name,
+          patientEmail: profile?.email,
+          reportNumber: reportSequencesByPatient.get(assignment.patient_id)?.get(assignment.report_id),
+        });
+
+        if (!nextTimelines[assignment.patient_id]) {
+          nextTimelines[assignment.patient_id] = [];
+        }
+
+        nextTimelines[assignment.patient_id].push({
+          id: assignment.id,
+          reportId: assignment.report_id,
+          reportName: reportLabel,
+          caseName: formatCaseLabel({
+            reportLabel,
+            caseNumber: caseSequencesByPatient.get(assignment.patient_id)?.get(assignment.id),
+          }),
+          requestedAt: consultation?.created_at ?? assignment.assigned_at,
+          status: report?.status,
+          riskLevel: report?.diagnosis?.risk_level,
+          patientMessage: consultation?.patient_message,
+          doctorNotes: consultation?.doctor_notes,
+          prescriptions: (report?.diagnosis as unknown as { prescriptions?: CaseTimelineItem['prescriptions'] })?.prescriptions ?? [],
+        });
+      }
+
+      Object.values(nextTimelines).forEach((items) =>
+        items.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()),
+      );
 
       setCases(
         assignments.map((assignment) => ({
@@ -119,6 +208,7 @@ export default function DoctorCases() {
           patient_profile: profileMap.get(assignment.patient_id),
         })),
       );
+      setCaseTimelines(nextTimelines);
     } catch (error) {
       console.error('Failed to fetch doctor cases', error);
       setCases([]);
@@ -190,6 +280,49 @@ export default function DoctorCases() {
     }
   };
 
+  const findCaseByTimelineItem = useCallback(
+    (item: CaseTimelineItem) => cases.find((caseItem) => caseItem.report_id === item.reportId),
+    [cases],
+  );
+
+  const openTimelineCase = useCallback(
+    async (item: CaseTimelineItem) => {
+      const caseItem = findCaseByTimelineItem(item);
+
+      if (caseItem) {
+        await openSelectedCase(caseItem);
+      }
+    },
+    [findCaseByTimelineItem, openSelectedCase],
+  );
+
+  const downloadTimelineCaseReport = useCallback(
+    async (item: CaseTimelineItem) => {
+      const caseItem = findCaseByTimelineItem(item);
+
+      if (caseItem) {
+        await handleDownloadCaseReport(caseItem);
+      }
+    },
+    [findCaseByTimelineItem, handleDownloadCaseReport],
+  );
+
+  const groupedCases = useMemo(() => {
+    const map = new Map<string, Case[]>();
+
+    for (const caseItem of cases) {
+      const current = map.get(caseItem.patient_id) ?? [];
+      current.push(caseItem);
+      map.set(caseItem.patient_id, current);
+    }
+
+    return [...map.entries()].map(([patientId, patientCases]) => ({
+      patientId,
+      patientProfile: patientCases[0]?.patient_profile,
+      cases: patientCases,
+    }));
+  }, [cases]);
+
   return (
     <DashboardLayout 
       title="Patient Cases" 
@@ -211,41 +344,53 @@ export default function DoctorCases() {
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {cases.map((caseItem) => {
-                const canDownload = canRunCaseReportAction(caseItem, 'download');
-                const canView = canRunCaseReportAction(caseItem, 'view');
+            <div className="space-y-6">
+              {groupedCases.map((group) => {
+                const latestCase = group.cases[0];
+                const canDownload = latestCase ? canRunCaseReportAction(latestCase, 'download') : false;
+                const canView = latestCase ? canRunCaseReportAction(latestCase, 'view') : false;
 
                 return (
                 <div
-                  key={caseItem.id}
-                  className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                  key={group.patientId}
+                  className="rounded-lg border bg-card p-4"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-lg bg-primary/10">
-                      <FileText className="h-6 w-6 text-primary" />
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className="p-3 rounded-lg bg-primary/10">
+                        <FileText className="h-6 w-6 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium">{group.patientProfile?.full_name || 'Patient'}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {group.cases.length} report{group.cases.length === 1 ? '' : 's'} in this case history
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium">Case #{caseItem.id.slice(0, 8)}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Assigned on {new Date(caseItem.assigned_at).toLocaleDateString()}
-                      </p>
-                    </div>
+                    {latestCase && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleDownloadCaseReport(latestCase)}
+                          disabled={!latestCase.mri_report || !canDownload}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Latest PDF
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => void openSelectedCase(latestCase)} disabled={!canView}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          Review Latest
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleDownloadCaseReport(caseItem)}
-                      disabled={!caseItem.mri_report || !canDownload}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      PDF
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => void openSelectedCase(caseItem)} disabled={!canView}>
-                      <Eye className="h-4 w-4 mr-2" />
-                      Review
-                    </Button>
+                  <div className="mt-4">
+                    <CaseTimeline
+                      items={caseTimelines[group.patientId] ?? []}
+                      onViewReport={(item) => void openTimelineCase(item)}
+                      onDownloadReport={(item) => void downloadTimelineCaseReport(item)}
+                    />
                   </div>
                 </div>
                 );

@@ -19,6 +19,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { createConsultationChannel } from '@/hooks/useStreamChat';
+import { createMRISignedUrl, normalizeSingleRelation } from '@/lib/mriReports';
+import { buildSequenceMap, formatReportLabel } from '@/lib/caseLabels';
 
 interface PatientDetails {
   phone?: string;
@@ -98,17 +100,30 @@ export default function DoctorConsultationRequests() {
 
       const [profilesResult, reportsResult] = await Promise.all([
         supabase.from('profiles').select('id, full_name, email').in('id', patientIds),
-        supabase.from('mri_reports').select('id, file_name').in('id', reportIds),
+        supabase.from('mri_reports').select('id, file_name, created_at, patient_id').in('patient_id', patientIds),
       ]);
 
       const profilesMap = new Map((profilesResult.data || []).map(p => [p.id, p]));
-      const reportsMap = new Map((reportsResult.data || []).map(r => [r.id, r]));
+      const reportsByPatient = new Map<string, NonNullable<typeof reportsResult.data>>();
+
+      for (const report of reportsResult.data || []) {
+        reportsByPatient.set(report.patient_id, [...(reportsByPatient.get(report.patient_id) || []), report]);
+      }
+
+      const reportNumberByPatient = new Map<string, Map<string, number>>();
+      reportsByPatient.forEach((patientReports, patientId) => {
+        reportNumberByPatient.set(patientId, buildSequenceMap(patientReports));
+      });
 
       const enriched = requestList.map(req => ({
         ...req,
-        patient_name: profilesMap.get(req.patient_id)?.full_name || 'Unknown Patient',
-        patient_email: profilesMap.get(req.patient_id)?.email,
-        report_name: reportsMap.get(req.report_id)?.file_name || 'Unknown Report',
+        patient_name: profilesMap.get(req.patient_id)?.full_name || req.patient_details?.email || 'Patient',
+        patient_email: profilesMap.get(req.patient_id)?.email || req.patient_details?.email,
+        report_name: formatReportLabel({
+          patientName: profilesMap.get(req.patient_id)?.full_name,
+          patientEmail: profilesMap.get(req.patient_id)?.email || req.patient_details?.email,
+          reportNumber: reportNumberByPatient.get(req.patient_id)?.get(req.report_id),
+        }),
       }));
 
       setRequests(enriched);
@@ -165,30 +180,55 @@ export default function DoctorConsultationRequests() {
           console.error('Assignment error (non-fatal):', assignError);
         }
 
-        // Create a Stream channel if not already present
-        if (!selectedRequest.stream_channel_id) {
-          try {
-            const channelId = await createConsultationChannel({
-              consultation_id: selectedRequest.id,
-              patient_id: selectedRequest.patient_id,
-              patient_name: selectedRequest.patient_name ?? selectedRequest.patient_email ?? selectedRequest.patient_id,
-              doctor_id: user.id,
-              doctor_name: user.email ?? user.id,
-              report_info: {
-                name: selectedRequest.report_name,
-                urgency: selectedRequest.patient_details?.urgency,
-                symptoms: selectedRequest.patient_details?.symptoms,
-                report_id: selectedRequest.report_id,
-              },
-            });
-            // @ts-expect-error - consultation_requests not in generated types
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (supabase.from('consultation_requests') as any)
-              .update({ stream_channel_id: channelId })
-              .eq('id', selectedRequest.id);
-          } catch (streamErr) {
-            console.warn('[ConsultationRequests] Stream channel creation failed:', streamErr);
-          }
+        // Always append this accepted request to the patient-doctor chat.
+        try {
+          const { data: report } = await supabase
+            .from('mri_reports')
+            .select(`
+              file_name,
+              file_url,
+              diagnosis (
+                risk_level,
+                details
+              )
+            `)
+            .eq('id', selectedRequest.report_id)
+            .maybeSingle();
+          const { data: doctorProfile } = await supabase
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', user.id)
+            .maybeSingle();
+          const diagnosis = normalizeSingleRelation(
+            report?.diagnosis as { risk_level?: string; details?: string | null } | Array<{ risk_level?: string; details?: string | null }> | null | undefined,
+          );
+          const reportDownloadUrl = await createMRISignedUrl(report?.file_url).catch(() => null);
+          const channelId = await createConsultationChannel({
+            consultation_id: selectedRequest.id,
+            patient_id: selectedRequest.patient_id,
+            patient_name: selectedRequest.patient_name ?? selectedRequest.patient_email ?? selectedRequest.patient_id,
+            doctor_id: user.id,
+            doctor_name: doctorProfile?.full_name ?? doctorProfile?.email ?? user.email ?? user.id,
+            doctor_notes: doctorNotes || undefined,
+            report_info: {
+              name: selectedRequest.report_name ?? report?.file_name,
+              risk_level: diagnosis?.risk_level,
+              diagnosis: diagnosis?.details ?? undefined,
+              urgency: selectedRequest.patient_details?.urgency,
+              symptoms: selectedRequest.patient_details?.symptoms,
+              patient_message: selectedRequest.patient_message ?? undefined,
+              report_id: selectedRequest.report_id,
+              report_url: `${window.location.origin}/doctor/cases?caseReportId=${encodeURIComponent(selectedRequest.report_id)}`,
+              report_download_url: reportDownloadUrl,
+            },
+          });
+          // @ts-expect-error - consultation_requests not in generated types
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from('consultation_requests') as any)
+            .update({ stream_channel_id: channelId })
+            .eq('id', selectedRequest.id);
+        } catch (streamErr) {
+          console.warn('[ConsultationRequests] Stream channel append failed:', streamErr);
         }
       }
 

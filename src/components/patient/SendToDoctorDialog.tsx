@@ -33,7 +33,6 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { createConsultationChannel } from '@/hooks/useStreamChat';
 import { supabase } from '@/integrations/supabase/client';
 import { DoctorDetailsPanel } from '@/components/patient/DoctorDetailsPanel';
 import { fetchAvailableDoctors, type DoctorDirectoryProfile } from '@/lib/doctorProfiles';
@@ -128,7 +127,7 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
       // @ts-expect-error - consultation_requests table not yet in generated types
       const consultationQuery = supabase.from('consultation_requests');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: inserted, error } = await (consultationQuery as any)
+      const { error } = await (consultationQuery as any)
         .insert({
           patient_id: user.id,
           doctor_id: selectedDoctorId === 'any' ? null : selectedDoctorId,
@@ -136,42 +135,9 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
           patient_message: message || null,
           patient_details: patientDetails,
           status: 'pending',
-        })
-        .select('id')
-        .single();
+        });
 
       if (error) throw error;
-
-      // Create Stream channel for this consultation
-      const consultationId = (inserted as { id: string })?.id;
-      if (consultationId) {
-        try {
-          const channelId = await createConsultationChannel({
-            consultation_id: consultationId,
-            patient_id: user.id,
-            patient_name: user.email ?? user.id,
-            doctor_id: selectedDoctorId === 'any' ? null : selectedDoctorId,
-            doctor_name: selectedDoctor?.fullName,
-            report_info: {
-              name: reportName,
-              urgency,
-              symptoms,
-              patient_message: message,
-              report_id: reportId,
-            },
-          });
-          // Save channel_id back to the consultation request
-          // @ts-expect-error - consultation_requests not in generated types
-          const streamUpdateQ = supabase.from('consultation_requests');
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (streamUpdateQ as any)
-            .update({ stream_channel_id: channelId })
-            .eq('id', consultationId);
-        } catch (streamErr) {
-          // Non-fatal: chat channel creation failed but request was saved
-          console.warn('[SendToDoctor] Stream channel creation failed:', streamErr);
-        }
-      }
 
       toast({
         title: 'Consultation Request Sent',

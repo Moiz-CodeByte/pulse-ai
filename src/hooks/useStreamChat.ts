@@ -105,6 +105,7 @@ export async function createConsultationChannel(params: {
   patient_name: string;
   doctor_id?: string | null;
   doctor_name?: string;
+  doctor_notes?: string | null;
   report_info?: {
     name?: string;
     risk_level?: string;
@@ -113,6 +114,8 @@ export async function createConsultationChannel(params: {
     symptoms?: string;
     patient_message?: string;
     report_id?: string;
+    report_url?: string | null;
+    report_download_url?: string | null;
   };
 }): Promise<string> {
   const res = await fetch(`${FLASK_BASE}/stream/create-channel`, {

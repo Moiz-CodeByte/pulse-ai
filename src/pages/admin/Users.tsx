@@ -32,6 +32,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { adminCreateUser } from '@/lib/mriAnalysis';
 import { formatConsultationFee, formatRating } from '@/lib/doctorProfiles';
+import { getPrescriptionMedicineLines } from '@/lib/prescriptions';
 
 type AppRole = 'patient' | 'doctor' | 'admin';
 
@@ -1173,41 +1174,50 @@ export default function AdminUsers() {
                     </div>
                   ) : prescriptionHistory.length > 0 ? (
                     <div className="space-y-2">
-                      {prescriptionHistory.map((prescription) => (
-                        <div key={prescription.id} className="p-3 rounded-lg border bg-card">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="text-sm font-medium">{prescription.medicine}</span>
-                            {prescription.dosage && (
-                              <span className="text-xs text-muted-foreground">{prescription.dosage}</span>
+                      {prescriptionHistory.map((prescription) => {
+                        const medicineLines = getPrescriptionMedicineLines(prescription);
+
+                        return (
+                          <div key={prescription.id} className="p-3 rounded-lg border bg-card">
+                            <div className="mb-2 space-y-2">
+                              {medicineLines.map((medicine, index) => (
+                                <div key={`${medicine.name}-${index}`} className="rounded border p-2">
+                                  <p className="text-sm font-medium">
+                                    {index + 1}. {medicine.name}
+                                    {medicine.dose ? <span className="text-muted-foreground"> - {medicine.dose}</span> : null}
+                                  </p>
+                                  {medicine.frequency && (
+                                    <p className="text-xs text-muted-foreground">Frequency: {medicine.frequency}</p>
+                                  )}
+                                  {medicine.duration && (
+                                    <p className="text-xs text-muted-foreground">Duration: {medicine.duration}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            {prescription.notes && (
+                              <p className="text-xs text-muted-foreground mb-1">
+                                <span className="font-medium">Notes:</span> {prescription.notes}
+                              </p>
                             )}
-                          </div>
-                          {prescription.instructions && (
-                            <p className="text-xs text-muted-foreground mb-1">
-                              <span className="font-medium">Instructions:</span> {prescription.instructions}
-                            </p>
-                          )}
-                          {prescription.notes && (
-                            <p className="text-xs text-muted-foreground mb-1">
-                              <span className="font-medium">Notes:</span> {prescription.notes}
-                            </p>
-                          )}
-                          <div className="flex justify-between items-center mt-2 pt-2 border-t">
-                            {prescription.doctor_name && (
+                            <div className="flex justify-between items-center mt-2 pt-2 border-t">
+                              {prescription.doctor_name && (
+                                <span className="text-xs text-muted-foreground">
+                                  Dr. {prescription.doctor_name}
+                                </span>
+                              )}
+                              {prescription.patient_name && (
+                                <span className="text-xs text-muted-foreground">
+                                  Patient: {prescription.patient_name}
+                                </span>
+                              )}
                               <span className="text-xs text-muted-foreground">
-                                Dr. {prescription.doctor_name}
+                                {new Date(prescription.created_at).toLocaleDateString()}
                               </span>
-                            )}
-                            {prescription.patient_name && (
-                              <span className="text-xs text-muted-foreground">
-                                Patient: {prescription.patient_name}
-                              </span>
-                            )}
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(prescription.created_at).toLocaleDateString()}
-                            </span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="py-4 text-center text-sm text-muted-foreground">

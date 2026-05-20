@@ -19,6 +19,7 @@ import {
   normalizeSingleRelation,
 } from '@/lib/mriReports';
 import { canUseReportAction } from '@/lib/reportPermissions';
+import { buildSequenceMap, formatReportLabel } from '@/lib/caseLabels';
 
 interface Report extends BaseReportRecord {
   patient_id: string;
@@ -35,9 +36,18 @@ export default function PatientReports() {
   const [selectedReportLoading, setSelectedReportLoading] = useState(false);
   const [sendToDoctorReport, setSendToDoctorReport] = useState<Report | null>(null);
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  const [patientName, setPatientName] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    setPatientName(profile?.full_name || user.email || null);
     
     const { data, error } = await supabase
       .from('mri_reports')
@@ -190,6 +200,11 @@ export default function PatientReports() {
               {reports.map((report) => {
                 const canDownload = canRunReportAction(report, 'download');
                 const canView = canRunReportAction(report, 'view');
+                const reportLabel = formatReportLabel({
+                  patientName,
+                  patientEmail: user?.email,
+                  reportNumber: buildSequenceMap(reports).get(report.id),
+                });
 
                 return (
                 <div
@@ -201,7 +216,9 @@ export default function PatientReports() {
                       <FileText className="h-6 w-6 text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium truncate max-w-[170px] sm:max-w-[280px]" title={report.file_name}>{report.file_name}</p>
+                      <p className="font-medium truncate max-w-[170px] sm:max-w-[280px]" title={report.file_name}>
+                        {reportLabel}
+                      </p>
                       <p className="text-sm text-muted-foreground">
                         Uploaded on {new Date(report.created_at).toLocaleDateString()}
                       </p>
@@ -341,7 +358,13 @@ export default function PatientReports() {
         open={!!sendToDoctorReport}
         onOpenChange={(open) => !open && setSendToDoctorReport(null)}
         reportId={sendToDoctorReport?.id || ''}
-        reportName={sendToDoctorReport?.file_name || ''}
+        reportName={sendToDoctorReport
+          ? formatReportLabel({
+              patientName,
+              patientEmail: user?.email,
+              reportNumber: buildSequenceMap(reports).get(sendToDoctorReport.id),
+            })
+          : ''}
       />
     </DashboardLayout>
   );

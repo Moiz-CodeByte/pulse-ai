@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -255,6 +256,33 @@ def format_diagnosis_details(summary: dict[str, Any]) -> str:
     )
 
 
+def summarize_diagnosis_for_chat(diagnosis: str) -> str:
+    """Return a short readable diagnosis line instead of raw stored JSON."""
+    if not diagnosis:
+        return ''
+
+    try:
+        parsed = json.loads(diagnosis)
+        headline = parsed.get('headline') or {}
+        title = headline.get('title') or headline.get('label')
+        risk_level = headline.get('riskLevel')
+        confidence = headline.get('confidence')
+        parts = [str(title)] if title else []
+        if risk_level:
+            parts.append(f'Risk: {risk_level}')
+        if confidence:
+            parts.append(f'Confidence: {confidence}%')
+        return ' | '.join(parts)
+    except Exception:
+        return diagnosis[:240]
+
+
+def as_clean_string(value: Any, fallback: str = '') -> str:
+    if value is None:
+        return fallback
+    return str(value).strip()
+
+
 def mark_report_status(report_id: str, status: str) -> None:
     if not supabase_admin:
         return
@@ -388,9 +416,9 @@ def get_stream_token() -> Any:
         return jsonify({'error': 'Stream chat is not configured. Set STREAM_API_KEY and STREAM_API_SECRET.'}), 503
 
     data = request.get_json()
-    user_id = (data or {}).get('user_id', '').strip()
-    user_name = (data or {}).get('user_name', '').strip()
-    user_role = (data or {}).get('user_role', 'patient').strip()
+    user_id = as_clean_string((data or {}).get('user_id'))
+    user_name = as_clean_string((data or {}).get('user_name'))
+    user_role = as_clean_string((data or {}).get('user_role'), 'patient')
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -419,17 +447,24 @@ def create_stream_channel() -> Any:
         return jsonify({'error': 'Stream chat is not configured.'}), 503
 
     data = request.get_json()
-    consultation_id = (data or {}).get('consultation_id', '').strip()
-    patient_id = (data or {}).get('patient_id', '').strip()
-    patient_name = (data or {}).get('patient_name', 'Patient').strip()
-    doctor_id = (data or {}).get('doctor_id', '').strip()
-    doctor_name = (data or {}).get('doctor_name', 'Doctor').strip()
+    consultation_id = as_clean_string((data or {}).get('consultation_id'))
+    patient_id = as_clean_string((data or {}).get('patient_id'))
+    patient_name = as_clean_string((data or {}).get('patient_name'), 'Patient') or 'Patient'
+    doctor_id = as_clean_string((data or {}).get('doctor_id'))
+    doctor_name = as_clean_string((data or {}).get('doctor_name'), 'Doctor') or 'Doctor'
+    doctor_notes = as_clean_string((data or {}).get('doctor_notes'))
     report_info = (data or {}).get('report_info', {})
+    if not isinstance(report_info, dict):
+        report_info = {}
 
     if not consultation_id or not patient_id:
         return jsonify({'error': 'consultation_id and patient_id are required'}), 400
 
-    channel_id = f'consultation-{consultation_id}'
+    channel_id = (
+        f'consultation-{hashlib.sha1(f"{patient_id}:{doctor_id}".encode("utf-8")).hexdigest()[:32]}'
+        if doctor_id
+        else f'consultation-{consultation_id}'
+    )
 
     # Upsert both users in Stream
     members = [
@@ -454,13 +489,36 @@ def create_stream_channel() -> Any:
             {
                 'members': member_ids,
                 'consultation_id': consultation_id,
+                'patient_name': patient_name,
+                'doctor_name': doctor_name,
                 'report_name': report_info.get('name', ''),
                 'report_risk': report_info.get('risk_level', ''),
                 'report_diagnosis': report_info.get('diagnosis', ''),
                 'report_id': report_info.get('report_id', ''),
+                'report_url': report_info.get('report_url', ''),
+                'report_download_url': report_info.get('report_download_url', ''),
             },
         )
-        channel.create(patient_id)
+        try:
+            channel.create(patient_id)
+        except Exception as create_exc:
+            # The patient/doctor channel may already exist; keep using it and append
+            # the new report request message below.
+            print(f'[Stream] channel.create skipped or failed: {create_exc}')
+        try:
+            channel.update({
+                'consultation_id': consultation_id,
+                'patient_name': patient_name,
+                'doctor_name': doctor_name,
+                'report_name': report_info.get('name', ''),
+                'report_risk': report_info.get('risk_level', ''),
+                'report_diagnosis': report_info.get('diagnosis', ''),
+                'report_id': report_info.get('report_id', ''),
+                'report_url': report_info.get('report_url', ''),
+                'report_download_url': report_info.get('report_download_url', ''),
+            })
+        except Exception as update_exc:
+            print(f'[Stream] channel.update failed: {update_exc}')
     except Exception as exc:
         print(f'[Stream] channel.create failed: {exc}')
         return jsonify({'error': f'Failed to create Stream channel: {exc}'}), 500
@@ -468,26 +526,44 @@ def create_stream_channel() -> Any:
     # Send an initial system message with report details
     if report_info:
         try:
-            risk = report_info.get('risk_level', 'unknown').upper()
-            diagnosis = report_info.get('diagnosis', '')
-            urgency = report_info.get('urgency', 'routine')
-            symptoms = report_info.get('symptoms', '')
-            patient_msg = report_info.get('patient_message', '')
+            risk = as_clean_string(report_info.get('risk_level'), 'unknown').upper()
+            diagnosis = summarize_diagnosis_for_chat(as_clean_string(report_info.get('diagnosis')))
+            urgency = as_clean_string(report_info.get('urgency'), 'routine')
+            symptoms = as_clean_string(report_info.get('symptoms'))
+            patient_msg = as_clean_string(report_info.get('patient_message'))
+            report_url = as_clean_string(report_info.get('report_url'))
+            report_download_url = as_clean_string(report_info.get('report_download_url'))
+            report_name = as_clean_string(report_info.get('name'), 'MRI Report') or 'MRI Report'
 
             system_text = (
-                f'**New Consultation Request**\n\n'
-                f'**Report:** {report_info.get("name", "MRI Report")}\n'
+                f'**MRI Report Shared**\n\n'
+                f'**Report:** {report_name}\n'
                 f'**Risk Level:** {risk}\n'
                 + (f'**Diagnosis:** {diagnosis}\n' if diagnosis else '')
                 + (f'**Urgency:** {urgency.capitalize()}\n' if urgency else '')
                 + (f'**Symptoms:** {symptoms}\n' if symptoms else '')
                 + (f'**Patient Note:** {patient_msg}\n' if patient_msg else '')
+                # + (f'**View Report:** {report_url}\n' if report_url else '')
+                # + (f'**Download Report:** {report_download_url}\n' if report_download_url else '')
             )
 
-            channel.send_message(
-                {'text': system_text},
-                user_id=patient_id,
-            )
+            try:
+                channel.send_message(
+                    {'text': system_text},
+                    user_id=patient_id,
+                )
+            except Exception as send_exc:
+                print(f'[Stream] send report message retrying after failure: {send_exc}')
+                retry_channel = stream_client.channel('messaging', channel_id)
+                retry_channel.send_message(
+                    {'text': system_text},
+                    user_id=patient_id,
+                )
+            if doctor_notes:
+                channel.send_message(
+                    {'text': f'**Doctor Response:** {doctor_notes}'},
+                    user_id=doctor_id or patient_id,
+                )
         except Exception as exc:
             print(f'[Stream] send_message failed: {exc}')
             # Non-fatal — channel exists, message is optional
