@@ -8,6 +8,8 @@ import {
   FileText,
   Loader2,
   MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
   PillBottle,
   Send,
   X,
@@ -21,12 +23,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormattedChatText } from '@/components/chat/FormattedChatText';
 import { ChatChannelPreview } from '@/components/chat/ChatChannelPreview';
 import { ChatMessageBubble } from '@/components/chat/ChatMessageBubble';
+import { CaseTimeline, type CaseTimelineItem } from '@/components/cases/CaseTimeline';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
+import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
+import type { BaseReportDiagnosis, BaseReportRecord } from '@/components/reports/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -37,7 +43,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useStreamChat } from '@/hooks/useStreamChat';
 import { useToast } from '@/hooks/use-toast';
-import { buildSequenceMap, formatReportLabel } from '@/lib/caseLabels';
+import { createMRISignedUrl, downloadMRIReportPdf, normalizeSingleRelation } from '@/lib/mriReports';
+import { buildSequenceMap, formatCaseLabel, formatReportLabel } from '@/lib/caseLabels';
 
 interface ChatMsg {
   id: string;
@@ -57,6 +64,7 @@ interface ChannelItem {
   reportUrl: string;
   reportDownloadUrl: string;
   consultationId: string;
+  caseRequestedAt: string;
   patientId: string;
   patientName: string;
   lastMessageText: string;
@@ -79,6 +87,11 @@ interface PrescribableReport {
   label: string;
   createdAt: string;
   riskLevel?: string | null;
+}
+
+interface ChatReport extends BaseReportRecord {
+  patient_id: string;
+  diagnosis?: BaseReportDiagnosis;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,6 +128,7 @@ function toChannelItem(ch: StreamChannel, myUserId: string): ChannelItem {
     reportUrl: (data.report_url as string) || '',
     reportDownloadUrl: (data.report_download_url as string) || '',
     consultationId: (data.consultation_id as string) || '',
+    caseRequestedAt: (data.case_requested_at as string) || '',
     patientId,
     patientName,
     lastMessageText: last?.text ?? '',
@@ -135,10 +149,12 @@ function getConsultationIdFromChannel(item: Pick<ChannelItem, 'id' | 'consultati
   return item.id.startsWith('consultation-') ? item.id.replace(/^consultation-/, '') : '';
 }
 
-async function hydrateChannelItems(items: ChannelItem[]): Promise<ChannelItem[]> {
+async function hydrateChannelItems(items: ChannelItem[], doctorId: string): Promise<ChannelItem[]> {
+  const patientIds = [...new Set(items.map((item) => item.patientId).filter(Boolean))];
   const missingReportItems = items.filter((item) => !item.reportId && getConsultationIdFromChannel(item));
+  const needsCaseTime = patientIds.length > 0;
 
-  if (!missingReportItems.length) {
+  if (!missingReportItems.length && !needsCaseTime) {
     return items;
   }
 
@@ -146,9 +162,18 @@ async function hydrateChannelItems(items: ChannelItem[]): Promise<ChannelItem[]>
   // @ts-expect-error - consultation_requests table not yet in generated types
   const consultationQuery = supabase.from('consultation_requests');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: consultations, error } = await (consultationQuery as any)
-    .select('id, report_id')
-    .in('id', consultationIds);
+  let consultationRequest = (consultationQuery as any)
+    .select('id, patient_id, report_id, created_at')
+    .eq('doctor_id', doctorId)
+    .order('created_at', { ascending: false });
+
+  if (patientIds.length) {
+    consultationRequest = consultationRequest.in('patient_id', patientIds);
+  } else {
+    consultationRequest = consultationRequest.in('id', consultationIds);
+  }
+
+  const { data: consultations, error } = await consultationRequest;
 
   if (error || !consultations?.length) {
     return items;
@@ -160,11 +185,29 @@ async function hydrateChannelItems(items: ChannelItem[]): Promise<ChannelItem[]>
       consultation.report_id,
     ]),
   );
+  const latestConsultationByPatient = new Map<
+    string,
+    { id: string; patient_id: string; report_id: string; created_at: string }
+  >();
+
+  for (const consultation of consultations as Array<{
+    id: string;
+    patient_id: string;
+    report_id: string;
+    created_at: string;
+  }>) {
+    if (!latestConsultationByPatient.has(consultation.patient_id)) {
+      latestConsultationByPatient.set(consultation.patient_id, consultation);
+    }
+  }
+
   const reportIds = [...new Set([...consultationMap.values()])];
-  const { data: reports } = await supabase
-    .from('mri_reports')
-    .select('id, file_name')
-    .in('id', reportIds);
+  const { data: reports } = reportIds.length
+    ? await supabase
+        .from('mri_reports')
+        .select('id, file_name')
+        .in('id', reportIds)
+    : { data: [] };
   const reportNameMap = new Map((reports ?? []).map((report) => [report.id, report.file_name]));
 
   return items.map((item) => {
@@ -172,18 +215,19 @@ async function hydrateChannelItems(items: ChannelItem[]): Promise<ChannelItem[]>
       return item;
     }
 
-    const consultationId = getConsultationIdFromChannel(item);
-    const reportId = consultationMap.get(consultationId) ?? '';
-
-    if (!reportId) {
-      return item;
-    }
+    const latestConsultation = latestConsultationByPatient.get(item.patientId);
+    const consultationId = latestConsultation?.id ?? getConsultationIdFromChannel(item);
+    const reportId = latestConsultation?.report_id ?? consultationMap.get(consultationId) ?? '';
 
     return {
       ...item,
-      consultationId,
-      reportId,
-      reportName: item.reportName === 'Consultation' ? reportNameMap.get(reportId) ?? item.reportName : item.reportName,
+      consultationId: consultationId || item.consultationId,
+      caseRequestedAt: latestConsultation?.created_at ?? item.caseRequestedAt,
+      reportId: reportId || item.reportId,
+      reportName:
+        reportId && item.reportName === 'Consultation'
+          ? reportNameMap.get(reportId) ?? item.reportName
+          : item.reportName,
     };
   });
 }
@@ -629,6 +673,11 @@ export default function DoctorChat() {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [prescribeOpen, setPrescribeOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [caseTimeline, setCaseTimeline] = useState<CaseTimelineItem[]>([]);
+  const [selectedReport, setSelectedReport] = useState<ChatReport | null>(null);
+  const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
+  const [selectedReportLoading, setSelectedReportLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   /* Load channel list */
@@ -647,7 +696,7 @@ export default function DoctorChat() {
           return;
         }
 
-        hydrateChannelItems(chans.map((c) => toChannelItem(c, user.id)))
+        hydrateChannelItems(chans.map((c) => toChannelItem(c, user.id)), user.id)
           .then((items) => {
             if (!cancelled) {
               setChannelItems(dedupePatientChannels(items));
@@ -704,7 +753,7 @@ export default function DoctorChat() {
         setMessages(activeChannel.state.messages.map(toMsg));
         setChannelItems((prev) =>
           prev.map((it) =>
-            it.id === activeChannel.id ? toChannelItem(activeChannel, user.id) : it,
+            it.id === activeChannel.id ? { ...it, ...toChannelItem(activeChannel, user.id) } : it,
           ),
         );
         activeChannel.markRead().catch(() => null);
@@ -738,6 +787,180 @@ export default function DoctorChat() {
     setActiveItem(item);
     setPrescribeOpen(false);
   }, []);
+
+  const fetchCaseTimeline = useCallback(async () => {
+    if (!activeItem?.patientId || !user) {
+      setCaseTimeline([]);
+      return;
+    }
+
+    // @ts-expect-error - consultation_requests table not yet in generated types
+    const consultationQuery = supabase.from('consultation_requests');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: consultations, error } = await (consultationQuery as any)
+      .select('id, report_id, patient_message, doctor_notes, status, created_at, responded_at')
+      .eq('doctor_id', user.id)
+      .eq('patient_id', activeItem.patientId)
+      .eq('status', 'accepted')
+      .order('created_at', { ascending: false });
+
+    if (error || !consultations?.length) {
+      setCaseTimeline([]);
+      return;
+    }
+
+    const reportIds = [...new Set((consultations as Array<{ report_id: string }>).map((item) => item.report_id))];
+    const { data: reports } = await supabase
+      .from('mri_reports')
+      .select(`
+        id,
+        file_name,
+        created_at,
+        status,
+        diagnosis (
+          id,
+          risk_level,
+          prescriptions (
+            id,
+            medicine,
+            dosage,
+            instructions,
+            notes
+          )
+        )
+      `)
+      .in('id', reportIds);
+
+    const reportMap = new Map((reports ?? []).map((report) => {
+      const diagnosis = normalizeSingleRelation(
+        report.diagnosis as Array<{
+          id: string;
+          risk_level: string;
+          prescriptions?: CaseTimelineItem['prescriptions'];
+        }> | {
+          id: string;
+          risk_level: string;
+          prescriptions?: CaseTimelineItem['prescriptions'];
+        } | null | undefined,
+      );
+
+      return [report.id, { ...report, diagnosis }];
+    }));
+    const reportSequenceMap = buildSequenceMap(reports ?? []);
+    const caseSequenceMap = buildSequenceMap(consultations as Array<{ id: string; created_at: string }>);
+
+    setCaseTimeline(
+      (consultations as Array<{
+        id: string;
+        report_id: string;
+        patient_message: string | null;
+        doctor_notes: string | null;
+        status: string;
+        created_at: string;
+      }>).map((item) => {
+        const report = reportMap.get(item.report_id);
+        const reportLabel = formatReportLabel({
+          patientName: activeItem.patientName,
+          reportNumber: reportSequenceMap.get(item.report_id),
+        });
+
+        return {
+          id: item.id,
+          reportId: item.report_id,
+          reportName: reportLabel,
+          caseName: formatCaseLabel({
+            reportLabel,
+            caseNumber: caseSequenceMap.get(item.id),
+          }),
+          requestedAt: item.created_at,
+          status: item.status,
+          riskLevel: report?.diagnosis?.risk_level,
+          patientMessage: item.patient_message,
+          doctorNotes: item.doctor_notes,
+          prescriptions: report?.diagnosis?.prescriptions ?? [],
+        };
+      }),
+    );
+  }, [activeItem?.patientId, activeItem?.patientName, user]);
+
+  useEffect(() => {
+    void fetchCaseTimeline();
+  }, [fetchCaseTimeline, messages.length]);
+
+  const fetchReportById = useCallback(async (reportId?: string | null): Promise<ChatReport | null> => {
+    if (!reportId) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('mri_reports')
+      .select(`
+        id,
+        file_name,
+        file_url,
+        patient_id,
+        status,
+        created_at,
+        diagnosis (
+          risk_level,
+          confidence,
+          details
+        )
+      `)
+      .eq('id', reportId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      ...data,
+      diagnosis: normalizeSingleRelation(
+        data.diagnosis as BaseReportDiagnosis | BaseReportDiagnosis[] | null | undefined,
+      ),
+    };
+  }, []);
+
+  const downloadReportPdf = useCallback(async (report: ChatReport) => {
+    await downloadMRIReportPdf({
+      reportId: report.id,
+      fileName: report.file_name,
+      fileReference: report.file_url,
+      createdAt: report.created_at,
+      status: report.status,
+      riskLevel: report.diagnosis?.risk_level,
+      confidence: report.diagnosis?.confidence,
+      details: report.diagnosis?.details,
+    });
+  }, []);
+
+  const openTimelineReport = useCallback(async (item: CaseTimelineItem) => {
+    setSelectedReportLoading(true);
+    setSelectedReportUrl(null);
+    const report = await fetchReportById(item.reportId);
+    setSelectedReport(report);
+
+    if (report) {
+      try {
+        setSelectedReportUrl(await createMRISignedUrl(report.file_url));
+      } catch {
+        setSelectedReportUrl(null);
+      }
+    }
+
+    setSelectedReportLoading(false);
+  }, [fetchReportById]);
+
+  const downloadTimelineReport = useCallback(async (item: CaseTimelineItem) => {
+    const report = await fetchReportById(item.reportId);
+
+    if (!report) {
+      return;
+    }
+
+    await downloadReportPdf(report);
+  }, [downloadReportPdf, fetchReportById]);
 
   const sendMessage = useCallback(async () => {
     if (!activeChannel || !text.trim()) return;
@@ -776,9 +999,9 @@ export default function DoctorChat() {
 
   return (
     <DashboardLayout title="Patient Consultations">
-      <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+      <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden border bg-background md:flex-row">
         {/* Sidebar */}
-        <div className="w-72 shrink-0 border-r border-border bg-card flex-col hidden sm:flex">
+        <div className="flex h-56 shrink-0 flex-col border-b border-border bg-card md:h-auto md:w-72 md:border-b-0 md:border-r">
           <div className="px-4 py-3 border-b border-border shrink-0">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
@@ -803,6 +1026,7 @@ export default function DoctorChat() {
                   key={item.id}
                   title={item.patientName || 'Patient'}
                   subtitle={item.reportName}
+                  meta={item.caseRequestedAt ? `Case time: ${format(new Date(item.caseRequestedAt), 'MMM d, h:mm a')}` : undefined}
                   risk={item.reportRisk}
                   lastMessageText={item.lastMessageText}
                   lastMessageAt={item.lastMessageAt}
@@ -816,12 +1040,12 @@ export default function DoctorChat() {
         </div>
 
         {/* Chat Area */}
-        <div className="flex-1 min-w-0 flex flex-col bg-background">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-background">
           {activeChannel && activeItem ? (
             <>
               {/* Header */}
               <div className="px-5 py-3 border-b border-border bg-card shrink-0">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                     <MessageSquare className="h-4 w-4 text-primary" />
                   </div>
@@ -846,7 +1070,16 @@ export default function DoctorChat() {
                       )}
                     </div>
                   </div>
-                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0" asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 shrink-0"
+                    onClick={() => setDetailsOpen((current) => !current)}
+                  >
+                    {detailsOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+                    <span className="hidden sm:inline">{detailsOpen ? 'Hide Timeline' : 'Show Timeline'}</span>
+                  </Button>
+                  {/* <Button size="sm" variant="outline" className="gap-1.5 shrink-0" asChild>
                     <a href={activeItem.reportUrl || '/doctor/cases'} target="_blank" rel="noreferrer">
                       <ExternalLink className="h-3.5 w-3.5" />
                       Report
@@ -859,7 +1092,7 @@ export default function DoctorChat() {
                         File
                       </a>
                     </Button>
-                  )}
+                  )} */}
                   <Button size="sm" onClick={() => setPrescribeOpen(true)} className="gap-1.5 shrink-0">
                     <PillBottle className="h-3.5 w-3.5" />
                     Prescribe
@@ -922,6 +1155,35 @@ export default function DoctorChat() {
             </div>
           )}
         </div>
+
+        {activeItem && detailsOpen && (
+          <div className="flex max-h-[45vh] min-w-0 shrink-0 flex-col border-t border-border bg-card md:max-h-none md:w-96 md:border-l md:border-t-0 xl:w-[26rem]">
+            <ScrollArea className="flex-1">
+              <div className="min-w-0 space-y-4 p-3 sm:p-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-primary" />
+                        Case Timeline
+                      </CardTitle>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDetailsOpen(false)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
+                    <CaseTimeline
+                      items={caseTimeline}
+                      onViewReport={(item) => void openTimelineReport(item)}
+                      onDownloadReport={(item) => void downloadTimelineReport(item)}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            </ScrollArea>
+          </div>
+        )}
       </div>
 
       <PrescriptionDialog
@@ -933,6 +1195,57 @@ export default function DoctorChat() {
         reportId={activeItem?.reportId ?? ''}
         reportName={activeItem?.reportName ?? ''}
       />
+
+      <Dialog open={!!selectedReport || selectedReportLoading} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedReport(null);
+          setSelectedReportUrl(null);
+          setSelectedReportLoading(false);
+        }
+      }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Report Details</DialogTitle>
+          </DialogHeader>
+          {selectedReport ? (
+            <ReportAnalysisPanel
+              analysis={selectedReport.diagnosis}
+              preview={
+                <ReportImagePreview
+                  loading={selectedReportLoading}
+                  imageUrl={selectedReportUrl}
+                  alt={selectedReport.file_name}
+                  fallbackText="The MRI image could not be loaded for this report."
+                />
+              }
+              sidebarContent={
+                <div className="rounded-xl border bg-card p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Report Status
+                  </p>
+                  <p className="mt-2 text-sm capitalize text-foreground">
+                    {selectedReport.status}
+                  </p>
+                </div>
+              }
+              actionBar={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectedReport && void downloadReportPdf(selectedReport)}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download PDF
+                </Button>
+              }
+            />
+          ) : (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

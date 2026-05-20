@@ -11,6 +11,7 @@ const riskColor: Record<string, string> = {
 export function ChatChannelPreview({
   title,
   subtitle,
+  meta,
   risk,
   lastMessageText,
   lastMessageAt,
@@ -20,6 +21,7 @@ export function ChatChannelPreview({
 }: {
   title: string;
   subtitle?: string;
+  meta?: string;
   risk?: string;
   lastMessageText?: string;
   lastMessageAt?: Date | null;
@@ -44,6 +46,11 @@ export function ChatChannelPreview({
           {subtitle && (
             <p className={cn('text-xs text-muted-foreground truncate', active && 'text-primary-foreground/80')}>
               {subtitle}
+            </p>
+          )}
+          {meta && (
+            <p className={cn('text-xs text-muted-foreground truncate', active && 'text-primary-foreground/80')}>
+              {meta}
             </p>
           )}
           {risk && (

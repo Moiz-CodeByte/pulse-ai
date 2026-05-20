@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Users, FileText, Activity, CheckCircle } from 'lucide-react';
+import { CalendarClock, Download, Users, FileText, Activity, CheckCircle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
 import { RiskBadge } from '@/components/ui/RiskBadge';
@@ -224,9 +224,18 @@ export default function DoctorDashboard() {
                       <p className="font-medium truncate max-w-[180px] sm:max-w-[260px]" title={caseItem.patient_profile?.full_name || 'Patient'}>
                         {caseItem.patient_profile?.full_name || 'Patient'}
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(caseItem.assigned_at).toLocaleDateString()}
-                      </p>
+                      <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                        <p className="flex items-center gap-1.5">
+                          <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                          Case assigned {new Date(caseItem.assigned_at).toLocaleString()}
+                        </p>
+                        {caseItem.mri_report?.created_at && (
+                          <p className="flex items-center gap-1.5">
+                            <FileText className="h-3.5 w-3.5 shrink-0" />
+                            Report uploaded {new Date(caseItem.mri_report.created_at).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex w-full sm:w-auto flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-4">
