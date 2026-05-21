@@ -94,6 +94,11 @@ export default function Landing() {
                   Sign In
                 </Button>
               </Link>
+              <Link to="/doctors">
+                <Button variant="ghost" size="lg" className="text-lg px-8">
+                  View Doctors
+                </Button>
+              </Link>
             </div>
 
             {/* Trust Indicators */}

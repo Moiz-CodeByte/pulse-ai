@@ -12,6 +12,7 @@ import { Preloader } from "@/components/ui/Preloader";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import Doctors from "./pages/Doctors";
 
 // Patient Pages
 import PatientDashboard from "./pages/patient/Dashboard";
@@ -50,6 +51,7 @@ const App = () => (
             {/* Public Routes */}
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/doctors" element={<Doctors />} />
 
             {/* Patient Routes */}
             <Route

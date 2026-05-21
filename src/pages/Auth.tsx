@@ -267,6 +267,12 @@ export default function Auth() {
               {isLogin ? 'Sign up' : 'Sign in'}
             </button>
           </p>
+
+          <div className="mt-4 text-center">
+            <Link to="/doctors" className="text-sm font-medium text-primary hover:underline">
+              Browse Verified Cardiologists
+            </Link>
+          </div>
         </div>
       </div>
 

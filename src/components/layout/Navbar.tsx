@@ -77,6 +77,9 @@ export function Navbar() {
                 <Link to="/#about" className="text-muted-foreground hover:text-foreground transition-colors">
                   About
                 </Link>
+                <Link to="/doctors" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Verified Cardiologists
+                </Link>
                 <Link to="/auth">
                   <Button variant="outline" size="sm">
                     Sign In
@@ -95,6 +98,9 @@ export function Navbar() {
                     <User className="h-4 w-4" />
                     Dashboard
                   </Button>
+                </Link>
+                <Link to="/doctors" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Verified Cardiologists
                 </Link>
                 <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-2">
                   <LogOut className="h-4 w-4" />
@@ -130,6 +136,9 @@ export function Navbar() {
                   <Link to="/#about" className="text-muted-foreground hover:text-foreground transition-colors py-1">
                     About
                   </Link>
+                  <Link to="/doctors" className="text-muted-foreground hover:text-foreground transition-colors py-1">
+                     Verified Cardiologists
+                  </Link>
                   <Link to="/auth">
                     <Button variant="outline" className="w-full">
                       Sign In
@@ -154,6 +163,15 @@ export function Navbar() {
                       </Button>
                     </Link>
                   ))}
+                  <Link to="/doctors">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start gap-2"
+                    >
+                      <User className="h-4 w-4" />
+                      Verified Cardiologists
+                    </Button>
+                  </Link>
                   <Button variant="ghost" onClick={handleSignOut} className="w-full justify-start gap-2">
                     <LogOut className="h-4 w-4" />
                     Sign Out
