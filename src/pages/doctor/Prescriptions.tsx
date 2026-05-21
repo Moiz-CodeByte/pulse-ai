@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, CalendarDays, ChevronDown, ChevronUp, ClipboardList, FileText, Hash, Pill, Search } from 'lucide-react';
+import { Activity, CalendarDays, ChevronDown, ChevronUp, ClipboardList, FileText, Hash, Pill, Search, Star } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +37,28 @@ interface Prescription {
   caseName?: string;
   caseStatus?: string | null;
   caseRequestedAt?: string | null;
+  patientReview?: {
+    rating: number;
+    comment?: string | null;
+    createdAt?: string | null;
+  } | null;
+}
+
+function ReviewStars({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-0.5" aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={
+            star <= rating
+              ? 'h-3.5 w-3.5 fill-primary text-primary'
+              : 'h-3.5 w-3.5 text-muted-foreground/50'
+          }
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function DoctorPrescriptions() {
@@ -96,6 +118,14 @@ export default function DoctorPrescriptions() {
             .eq('doctor_id', user.id)
             .in('report_id', reportIds)
         : { data: [] };
+      const prescriptionIds = data.map((item) => item.id);
+      const reviewQuery = supabase.from('doctor_reviews' as never);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: reviews } = prescriptionIds.length
+        ? await (reviewQuery as any)
+            .select('prescription_id, rating, comment, created_at')
+            .in('prescription_id', prescriptionIds)
+        : { data: [] };
 
       const diagnosisMap = new Map((diagnoses ?? []).map((item) => [item.id, item]));
       const reportMap = new Map((reports ?? []).map((item) => [item.id, item]));
@@ -107,6 +137,14 @@ export default function DoctorPrescriptions() {
           status: string | null;
           created_at: string | null;
         }>).map((item) => [item.report_id, item]),
+      );
+      const reviewMap = new Map(
+        ((reviews ?? []) as Array<{
+          prescription_id: string;
+          rating: number;
+          comment: string | null;
+          created_at: string | null;
+        }>).map((review) => [review.prescription_id, review]),
       );
       const reportSequencesByPatient = new Map<string, Map<string, number>>();
       const caseSequencesByPatient = new Map<string, Map<string, number>>();
@@ -137,6 +175,7 @@ export default function DoctorPrescriptions() {
           : 'MRI report';
         const consultation = report?.id ? consultationMap.get(report.id) : undefined;
         const caseId = consultation?.id;
+        const patientReview = reviewMap.get(prescription.id);
 
         return {
           ...prescription,
@@ -147,6 +186,13 @@ export default function DoctorPrescriptions() {
             reportLabel,
             caseNumber: report?.patient_id ? caseSequencesByPatient.get(report.patient_id)?.get(caseId) : undefined,
           }) : undefined,
+          patientReview: patientReview
+            ? {
+                rating: patientReview.rating,
+                comment: patientReview.comment,
+                createdAt: patientReview.created_at,
+              }
+            : null,
           report: report
             ? {
                 id: report.id,
@@ -330,6 +376,16 @@ export default function DoctorPrescriptions() {
                           <Badge variant="outline">
                             {medicineLines.length} medicine{medicineLines.length === 1 ? '' : 's'}
                           </Badge>
+                          {prescription.patientReview ? (
+                            <Badge variant="secondary" className="gap-1.5">
+                              <Star className="h-3.5 w-3.5 fill-primary text-primary" />
+                              Patient review {prescription.patientReview.rating}/5
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              No patient review yet
+                            </Badge>
+                          )}
                           {/* {medicineLines[0] && (
                             <span className="text-sm text-muted-foreground">
                               First medicine: {medicineLines[0].name}
@@ -391,6 +447,32 @@ export default function DoctorPrescriptions() {
                                 </div>
                               )}
                             </div>
+                            {prescription.patientReview && (
+                              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div>
+                                    <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                                      <Star className="h-3.5 w-3.5" />
+                                      Patient Review
+                                    </p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                                      <ReviewStars rating={prescription.patientReview.rating} />
+                                      <span className="font-medium">{prescription.patientReview.rating}.0 / 5</span>
+                                    </div>
+                                  </div>
+                                  {prescription.patientReview.createdAt && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(prescription.patientReview.createdAt).toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                                {prescription.patientReview.comment && (
+                                  <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                                    {prescription.patientReview.comment}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                             <div className="space-y-3">
                               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                 <p className="font-medium">Medicines</p>

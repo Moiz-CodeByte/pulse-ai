@@ -848,6 +848,28 @@ export default function DoctorChat() {
     }));
     const reportSequenceMap = buildSequenceMap(reports ?? []);
     const caseSequenceMap = buildSequenceMap(consultations as Array<{ id: string; created_at: string }>);
+    const prescriptionIds = (reports ?? []).flatMap((report) => {
+      const diagnosis = normalizeSingleRelation(
+        report.diagnosis as Array<{ prescriptions?: CaseTimelineItem['prescriptions'] }> | {
+          prescriptions?: CaseTimelineItem['prescriptions'];
+        } | null | undefined,
+      );
+      return diagnosis?.prescriptions?.map((prescription) => prescription.id) ?? [];
+    });
+    const reviewQuery = supabase.from('doctor_reviews' as never);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: reviews } = prescriptionIds.length
+      ? await (reviewQuery as any)
+          .select('prescription_id, rating, comment')
+          .eq('patient_id', activeItem.patientId)
+          .in('prescription_id', prescriptionIds)
+      : { data: [] };
+    const reviewMap = new Map(
+      ((reviews ?? []) as Array<{ prescription_id: string; rating: number; comment: string | null }>).map((review) => [
+        review.prescription_id,
+        review,
+      ]),
+    );
 
     setCaseTimeline(
       (consultations as Array<{
@@ -859,6 +881,10 @@ export default function DoctorChat() {
         created_at: string;
       }>).map((item) => {
         const report = reportMap.get(item.report_id);
+        const prescriptions = report?.diagnosis?.prescriptions ?? [];
+        const doctorReview = prescriptions
+          .map((prescription) => reviewMap.get(prescription.id))
+          .find(Boolean);
         const reportLabel = formatReportLabel({
           patientName: activeItem.patientName,
           reportNumber: reportSequenceMap.get(item.report_id),
@@ -877,7 +903,10 @@ export default function DoctorChat() {
           riskLevel: report?.diagnosis?.risk_level,
           patientMessage: item.patient_message,
           doctorNotes: item.doctor_notes,
-          prescriptions: report?.diagnosis?.prescriptions ?? [],
+          prescriptions,
+          doctorReview: doctorReview
+            ? { rating: doctorReview.rating, comment: doctorReview.comment }
+            : null,
         };
       }),
     );
@@ -922,18 +951,20 @@ export default function DoctorChat() {
     };
   }, []);
 
-  const downloadReportPdf = useCallback(async (report: ChatReport) => {
+  const downloadReportPdf = useCallback(async (report: ChatReport, reportLabel?: string | null) => {
     await downloadMRIReportPdf({
       reportId: report.id,
       fileName: report.file_name,
       fileReference: report.file_url,
       createdAt: report.created_at,
       status: report.status,
+      patientName: activeItem?.patientName,
+      reportLabel: reportLabel ?? activeItem?.reportName,
       riskLevel: report.diagnosis?.risk_level,
       confidence: report.diagnosis?.confidence,
       details: report.diagnosis?.details,
     });
-  }, []);
+  }, [activeItem?.patientName, activeItem?.reportName]);
 
   const openTimelineReport = useCallback(async (item: CaseTimelineItem) => {
     setSelectedReportLoading(true);
@@ -959,7 +990,7 @@ export default function DoctorChat() {
       return;
     }
 
-    await downloadReportPdf(report);
+    await downloadReportPdf(report, item.reportName);
   }, [downloadReportPdf, fetchReportById]);
 
   const sendMessage = useCallback(async () => {

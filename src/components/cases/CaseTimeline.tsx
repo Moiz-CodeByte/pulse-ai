@@ -1,4 +1,4 @@
-import { Download, Eye, FileText, MessageSquare, Pill } from 'lucide-react';
+import { Download, Eye, FileText, MessageSquare, Pill, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getPrescriptionMedicineLines } from '@/lib/prescriptions';
@@ -22,6 +22,27 @@ export interface CaseTimelineItem {
   patientMessage?: string | null;
   doctorNotes?: string | null;
   prescriptions?: CaseTimelinePrescription[];
+  doctorReview?: {
+    rating: number;
+    comment?: string | null;
+  } | null;
+}
+
+function ReviewStars({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-0.5" aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={
+            star <= rating
+              ? 'h-3.5 w-3.5 fill-primary text-primary'
+              : 'h-3.5 w-3.5 text-muted-foreground/50'
+          }
+        />
+      ))}
+    </div>
+  );
 }
 
 export function CaseTimeline({
@@ -115,6 +136,22 @@ export function CaseTimeline({
               <div className="min-w-0 rounded-md bg-muted/50 p-2 text-sm">
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Doctor response</p>
                 <p className="break-words">{item.doctorNotes}</p>
+              </div>
+            )}
+
+            {item.doctorReview && (
+              <div className="min-w-0 rounded-md bg-muted/50 p-2 text-sm">
+                <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Star className="h-3.5 w-3.5" />
+                  Patient review
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ReviewStars rating={item.doctorReview.rating} />
+                  <span className="font-medium">{item.doctorReview.rating}.0 / 5</span>
+                </div>
+                {item.doctorReview.comment && (
+                  <p className="mt-1 break-words text-muted-foreground">{item.doctorReview.comment}</p>
+                )}
               </div>
             )}
 

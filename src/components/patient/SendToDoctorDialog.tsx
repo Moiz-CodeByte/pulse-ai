@@ -10,6 +10,7 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  Star,
 } from 'lucide-react';
 import {
   Dialog,
@@ -35,13 +36,32 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { DoctorDetailsPanel } from '@/components/patient/DoctorDetailsPanel';
-import { fetchAvailableDoctors, type DoctorDirectoryProfile } from '@/lib/doctorProfiles';
+import { fetchAvailableDoctors, formatRating, type DoctorDirectoryProfile } from '@/lib/doctorProfiles';
 
 interface SendToDoctorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   reportId: string;
   reportName: string;
+}
+
+function RatingStars({ rating }: { rating?: number }) {
+  const roundedRating = Math.round(rating ?? 0);
+
+  return (
+    <div className="flex items-center gap-0.5" aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={
+            star <= roundedRating
+              ? 'h-3.5 w-3.5 fill-primary text-primary'
+              : 'h-3.5 w-3.5 text-muted-foreground/50'
+          }
+        />
+      ))}
+    </div>
+  );
 }
 
 export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }: SendToDoctorDialogProps) {
@@ -272,6 +292,15 @@ export function SendToDoctorDialog({ open, onOpenChange, reportId, reportName }:
                   </Button>
                 </div>
                 {showDoctorDetails ? <DoctorDetailsPanel doctor={selectedDoctor} /> : null}
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Patient Rating</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <RatingStars rating={selectedDoctor.averageRating} />
+                    <p className="text-sm font-medium">
+                      {formatRating(selectedDoctor.averageRating, selectedDoctor.totalReviews)}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 

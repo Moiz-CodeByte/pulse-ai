@@ -145,6 +145,27 @@ export default function DoctorCases() {
           created_at: string;
         }>).map((consultation) => [consultation.report_id, consultation]),
       );
+      const prescriptionIds = (reportsResult.data ?? []).flatMap((report) => {
+        const diagnosis = normalizeSingleRelation(
+          report.diagnosis as Array<{ prescriptions?: CaseTimelineItem['prescriptions'] }> | {
+            prescriptions?: CaseTimelineItem['prescriptions'];
+          } | null | undefined,
+        );
+        return diagnosis?.prescriptions?.map((prescription) => prescription.id) ?? [];
+      });
+      const reviewQuery = supabase.from('doctor_reviews' as never);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: reviews } = prescriptionIds.length
+        ? await (reviewQuery as any)
+            .select('prescription_id, rating, comment')
+            .in('prescription_id', prescriptionIds)
+        : { data: [] };
+      const reviewMap = new Map(
+        ((reviews ?? []) as Array<{ prescription_id: string; rating: number; comment: string | null }>).map((review) => [
+          review.prescription_id,
+          review,
+        ]),
+      );
 
       const nextTimelines: Record<string, CaseTimelineItem[]> = {};
       const reportSequencesByPatient = new Map<string, Map<string, number>>();
@@ -185,6 +206,11 @@ export default function DoctorCases() {
           nextTimelines[assignment.patient_id] = [];
         }
 
+        const prescriptions = (report?.diagnosis as unknown as { prescriptions?: CaseTimelineItem['prescriptions'] })?.prescriptions ?? [];
+        const doctorReview = prescriptions
+          .map((prescription) => reviewMap.get(prescription.id))
+          .find(Boolean);
+
         nextTimelines[assignment.patient_id].push({
           id: assignment.id,
           reportId: assignment.report_id,
@@ -198,7 +224,10 @@ export default function DoctorCases() {
           riskLevel: report?.diagnosis?.risk_level,
           patientMessage: consultation?.patient_message,
           doctorNotes: consultation?.doctor_notes,
-          prescriptions: (report?.diagnosis as unknown as { prescriptions?: CaseTimelineItem['prescriptions'] })?.prescriptions ?? [],
+          prescriptions,
+          doctorReview: doctorReview
+            ? { rating: doctorReview.rating, comment: doctorReview.comment }
+            : null,
         });
       }
 

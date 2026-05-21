@@ -1,11 +1,21 @@
 import { useEffect, useState } from 'react';
-import { FileText, Pill, Stethoscope } from 'lucide-react';
+import { ExternalLink, FileText, Loader2, Pill, Star, Stethoscope } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { ReportAnalysisPanel } from '@/components/reports/ReportAnalysisPanel';
+import { ReportImagePreview } from '@/components/reports/ReportImagePreview';
+import type { BaseReportDiagnosis } from '@/components/reports/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useStreamChat } from '@/hooks/useStreamChat';
+import { useToast } from '@/hooks/use-toast';
 import { getPrescriptionMedicineLines } from '@/lib/prescriptions';
+import { createMRISignedUrl } from '@/lib/mriReports';
 import { buildSequenceMap, formatCaseLabel, formatReportLabel } from '@/lib/caseLabels';
 
 interface Prescription {
@@ -21,21 +31,44 @@ interface Prescription {
   report?: {
     id: string;
     fileName: string;
+    fileUrl?: string | null;
     label: string;
     createdAt: string;
+    status?: string | null;
     riskLevel?: string | null;
+    confidence?: number | null;
+    details?: string | null;
   };
   doctor?: {
     id: string;
     name: string;
   };
   caseName?: string;
+  streamChannelId?: string | null;
+}
+
+interface DoctorReview {
+  id: string;
+  prescription_id: string;
+  doctor_id: string;
+  rating: number;
+  comment: string | null;
 }
 
 export default function PatientPrescriptions() {
   const { user } = useAuth();
+  const { client: streamClient, ready: streamReady } = useStreamChat();
+  const { toast } = useToast();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null);
+  const [selectedReportUrl, setSelectedReportUrl] = useState<string | null>(null);
+  const [selectedReportLoading, setSelectedReportLoading] = useState(false);
+  const [reviewsByPrescription, setReviewsByPrescription] = useState<Record<string, DoctorReview>>({});
+  const [reviewPrescription, setReviewPrescription] = useState<Prescription | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [savingReview, setSavingReview] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -65,7 +98,7 @@ export default function PatientPrescriptions() {
       const { data: diagnoses } = diagnosisIds.length
         ? await supabase
             .from('diagnosis')
-            .select('id, report_id, risk_level')
+            .select('id, report_id, risk_level, confidence, details')
             .in('id', diagnosisIds)
         : { data: [] };
 
@@ -73,7 +106,7 @@ export default function PatientPrescriptions() {
       const { data: reports } = reportIds.length
         ? await supabase
             .from('mri_reports')
-            .select('id, file_name, created_at, patient_id')
+            .select('id, file_name, file_url, created_at, patient_id, status')
             .in('id', reportIds)
         : { data: [] };
 
@@ -90,7 +123,7 @@ export default function PatientPrescriptions() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: consultations } = reportIds.length
         ? await (consultationQuery as any)
-            .select('id, report_id')
+            .select('id, report_id, stream_channel_id')
             .eq('patient_id', user.id)
             .in('report_id', reportIds)
         : { data: [] };
@@ -101,6 +134,12 @@ export default function PatientPrescriptions() {
       const consultationMap = new Map(
         ((consultations ?? []) as Array<{ id: string; report_id: string }>).map((item) => [item.report_id, item.id]),
       );
+      const consultationChannelMap = new Map(
+        ((consultations ?? []) as Array<{ report_id: string; stream_channel_id: string | null }>).map((item) => [
+          item.report_id,
+          item.stream_channel_id,
+        ]),
+      );
       const reportSequenceMap = buildSequenceMap(reports ?? []);
       const caseSequenceMap = buildSequenceMap(
         ((consultations ?? []) as Array<{ id: string; report_id: string }>).map((item) => {
@@ -109,7 +148,7 @@ export default function PatientPrescriptions() {
         }),
       );
 
-      setPrescriptions(data
+      const nextPrescriptions = data
         .map((prescription) => {
           const diagnosis = diagnosisMap.get(prescription.diagnosis_id);
           const report = diagnosis?.report_id ? reportMap.get(diagnosis.report_id) : undefined;
@@ -133,12 +172,17 @@ export default function PatientPrescriptions() {
               reportLabel,
               caseNumber: caseSequenceMap.get(caseId),
             }) : undefined,
+            streamChannelId: consultationChannelMap.get(report.id),
             report: {
               id: report.id,
               fileName: report.file_name,
+              fileUrl: report.file_url,
               label: reportLabel,
               createdAt: report.created_at,
+              status: report.status,
               riskLevel: diagnosis?.risk_level,
+              confidence: diagnosis?.confidence,
+              details: diagnosis?.details,
             },
             doctor: doctor
               ? {
@@ -148,9 +192,115 @@ export default function PatientPrescriptions() {
               : undefined,
           };
         })
-        .filter(Boolean) as Prescription[]);
+        .filter(Boolean) as Prescription[];
+
+      setPrescriptions(nextPrescriptions);
+
+      const prescriptionIds = nextPrescriptions.map((prescription) => prescription.id);
+      if (prescriptionIds.length) {
+        const reviewQuery = supabase.from('doctor_reviews' as never);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: reviews } = await (reviewQuery as any)
+          .select('id, prescription_id, doctor_id, rating, comment')
+          .eq('patient_id', user.id)
+          .in('prescription_id', prescriptionIds);
+
+        setReviewsByPrescription(
+          ((reviews ?? []) as DoctorReview[]).reduce<Record<string, DoctorReview>>((acc, review) => {
+            acc[review.prescription_id] = review;
+            return acc;
+          }, {}),
+        );
+      } else {
+        setReviewsByPrescription({});
+      }
     }
     setLoading(false);
+  };
+
+  const openDoctorReview = (prescription: Prescription) => {
+    const existingReview = reviewsByPrescription[prescription.id];
+    setReviewPrescription(prescription);
+    setReviewRating(existingReview?.rating ?? 5);
+    setReviewComment(existingReview?.comment ?? '');
+  };
+
+  const saveDoctorReview = async () => {
+    if (!user || !reviewPrescription?.doctor?.id) {
+      return;
+    }
+
+    setSavingReview(true);
+
+    try {
+      const reviewPayload = {
+        patient_id: user.id,
+        doctor_id: reviewPrescription.doctor.id,
+        prescription_id: reviewPrescription.id,
+        rating: reviewRating,
+        comment: reviewComment.trim() || null,
+      };
+      const reviewQuery = supabase.from('doctor_reviews' as never);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: savedReview, error } = await (reviewQuery as any)
+        .upsert(reviewPayload, { onConflict: 'patient_id,prescription_id' })
+        .select('id, prescription_id, doctor_id, rating, comment')
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      setReviewsByPrescription((current) => ({
+        ...current,
+        [reviewPrescription.id]: savedReview as DoctorReview,
+      }));
+      if (streamReady && streamClient && reviewPrescription.streamChannelId) {
+        const reviewMessage = [
+          'Patient Review',
+          `Doctor: ${reviewPrescription.doctor.name}`,
+          reviewPrescription.report?.label ? `Report: ${reviewPrescription.report.label}` : '',
+          reviewPrescription.caseName ? `Case: ${reviewPrescription.caseName}` : '',
+          `Rating: ${reviewRating}.0 / 5`,
+          reviewComment.trim() ? `Comment: ${reviewComment.trim()}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        streamClient
+          .channel('messaging', reviewPrescription.streamChannelId)
+          .sendMessage({ text: reviewMessage })
+          .catch(() => null);
+      }
+      toast({ title: 'Review saved', description: 'Thank you for reviewing your doctor.' });
+      setReviewPrescription(null);
+    } catch (error) {
+      toast({
+        title: 'Could not save review',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
+  const openReportReview = async (prescription: Prescription) => {
+    if (!prescription.report) {
+      return;
+    }
+
+    setSelectedPrescription(prescription);
+    setSelectedReportUrl(null);
+    setSelectedReportLoading(true);
+
+    try {
+      setSelectedReportUrl(await createMRISignedUrl(prescription.report.fileUrl));
+    } catch {
+      setSelectedReportUrl(null);
+    } finally {
+      setSelectedReportLoading(false);
+    }
   };
 
   return (
@@ -177,6 +327,7 @@ export default function PatientPrescriptions() {
             <div className="space-y-4">
               {prescriptions.map((prescription) => {
                 const medicineLines = getPrescriptionMedicineLines(prescription);
+                const doctorReview = reviewsByPrescription[prescription.id];
 
                 return (
                   <div
@@ -240,6 +391,30 @@ export default function PatientPrescriptions() {
                             <p className="mt-1 text-sm text-muted-foreground">{prescription.notes}</p>
                           </div>
                         )}
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                          {prescription.report && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full sm:w-auto"
+                              onClick={() => void openReportReview(prescription)}
+                            >
+                              <ExternalLink className="mr-2 h-4 w-4" />
+                              Review Report
+                            </Button>
+                          )}
+                          {prescription.doctor && (
+                            <Button
+                              type="button"
+                              variant={doctorReview ? 'secondary' : 'default'}
+                              className="w-full sm:w-auto"
+                              onClick={() => openDoctorReview(prescription)}
+                            >
+                              <Star className="mr-2 h-4 w-4" />
+                              {doctorReview ? `Update Review (${doctorReview.rating}/5)` : 'Review Doctor'}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -249,6 +424,112 @@ export default function PatientPrescriptions() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedPrescription || selectedReportLoading} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedPrescription(null);
+          setSelectedReportUrl(null);
+          setSelectedReportLoading(false);
+        }
+      }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedPrescription?.report?.label || 'Report Review'}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedPrescription?.report ? (
+            <ReportAnalysisPanel
+              analysis={{
+                risk_level: selectedPrescription.report.riskLevel || '',
+                confidence: selectedPrescription.report.confidence ?? 0,
+                details: selectedPrescription.report.details ?? null,
+              } as BaseReportDiagnosis}
+              preview={
+                <ReportImagePreview
+                  loading={selectedReportLoading}
+                  imageUrl={selectedReportUrl}
+                  alt={selectedPrescription.report.fileName}
+                  fallbackText="The MRI image could not be loaded for this report."
+                />
+              }
+              sidebarContent={
+                <div className="rounded-xl border bg-card p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Prescription Context
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    {selectedPrescription.doctor?.name || 'Doctor'}
+                  </p>
+                  {selectedPrescription.caseName && (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {selectedPrescription.caseName}
+                    </p>
+                  )}
+                </div>
+              }
+            />
+          ) : (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reviewPrescription} onOpenChange={(open) => !open && setReviewPrescription(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Review {reviewPrescription?.doctor?.name || 'Doctor'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Rating</Label>
+              <div className="mt-2 flex gap-1">
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <Button
+                    key={rating}
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10"
+                    onClick={() => setReviewRating(rating)}
+                    aria-label={`${rating} star${rating === 1 ? '' : 's'}`}
+                  >
+                    <Star
+                      className={
+                        rating <= reviewRating
+                          ? 'h-6 w-6 fill-primary text-primary'
+                          : 'h-6 w-6 text-muted-foreground'
+                      }
+                    />
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="doctor-review-comment">Comment</Label>
+              <Textarea
+                id="doctor-review-comment"
+                value={reviewComment}
+                onChange={(event) => setReviewComment(event.target.value)}
+                placeholder="Share how helpful the prescription and consultation were..."
+                className="mt-2"
+                rows={4}
+              />
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => setReviewPrescription(null)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void saveDoctorReview()} disabled={savingReview}>
+                {savingReview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Star className="mr-2 h-4 w-4" />}
+                Save Review
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

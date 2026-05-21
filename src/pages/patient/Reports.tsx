@@ -129,6 +129,12 @@ export default function PatientReports() {
         fileReference: report.file_url,
         createdAt: report.created_at,
         status: report.status,
+        patientName,
+        reportLabel: formatReportLabel({
+          patientName,
+          patientEmail: user?.email,
+          reportNumber: buildSequenceMap(reports).get(report.id),
+        }),
         riskLevel: report.diagnosis?.risk_level,
         confidence: report.diagnosis?.confidence,
         details: report.diagnosis?.details,

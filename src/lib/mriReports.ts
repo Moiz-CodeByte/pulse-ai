@@ -34,6 +34,7 @@ export interface MRIReportPdfInput {
   status?: string | null;
   patientId?: string | null;
   patientName?: string | null;
+  reportLabel?: string | null;
   riskLevel?: string | null;
   confidence?: number | null;
   details?: string | null;
@@ -133,12 +134,14 @@ export async function createMRISignedUrl(
 function sanitizeDownloadFileName(fileName: string): string {
   return fileName
     .replace(/[<>:"/\\|?*\x00-\x1F]+/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
     .trim() || 'mri-report';
 }
 
 function getReportNumber(input: MRIReportPdfInput): string {
-  const candidates = [input.fileName, input.reportId];
+  const candidates = [input.reportLabel ?? '', input.fileName, input.reportId];
 
   for (const candidate of candidates) {
     const match = candidate.match(/(?:report\s*)?(\d+)(?!.*\d)/i);
@@ -152,7 +155,9 @@ function getReportNumber(input: MRIReportPdfInput): string {
 }
 
 function buildPdfDownloadFileName(input: MRIReportPdfInput): string {
-  const patientLabel = getPatientFirstName(input.patientName) || sanitizeDownloadFileName(input.fileName).replace(/\.[^/.]+$/, '');
+  const patientLabel = input.patientName
+    ? getPatientFirstName(input.patientName)
+    : input.reportLabel?.split(/\s+/)[0] || sanitizeDownloadFileName(input.fileName).replace(/\.[^/.]+$/, '');
   const reportNumber = getReportNumber(input);
 
   return sanitizeDownloadFileName(`${patientLabel} mri Report ${reportNumber} analysis pulse ai`);
