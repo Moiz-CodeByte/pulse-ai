@@ -19,10 +19,16 @@ import {
   normalizeSingleRelation,
 } from '@/lib/mriReports';
 import { canUseReportAction } from '@/lib/reportPermissions';
+import { buildSequenceMap, formatReportLabel } from '@/lib/caseLabels';
 
 interface Report extends BaseReportRecord {
   patient_id: string;
   diagnosis?: BaseReportDiagnosis;
+  patient?: {
+    name: string;
+    email?: string | null;
+  };
+  label: string;
 }
 
 export default function AdminReports() {
@@ -56,7 +62,31 @@ export default function AdminReports() {
       .order('created_at', { ascending: false });
 
     if (!error && data) {
+      const patientIds = [...new Set(data.map((item) => item.patient_id).filter(Boolean))];
+      const { data: profiles } = patientIds.length
+        ? await supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .in('id', patientIds)
+        : { data: [] };
+      const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+      const reportSequencesByPatient = new Map<string, Map<string, number>>();
+
+      for (const patientId of patientIds) {
+        reportSequencesByPatient.set(
+          patientId,
+          buildSequenceMap(data.filter((report) => report.patient_id === patientId)),
+        );
+      }
+
       const mappedReports: Report[] = data.map(item => {
+        const patient = profileMap.get(item.patient_id);
+        const label = formatReportLabel({
+          patientName: patient?.full_name,
+          patientEmail: patient?.email,
+          reportNumber: reportSequencesByPatient.get(item.patient_id)?.get(item.id),
+        });
+
         return {
           id: item.id,
           file_name: item.file_name,
@@ -64,6 +94,13 @@ export default function AdminReports() {
           status: item.status || 'pending',
           created_at: item.created_at,
           patient_id: item.patient_id,
+          label,
+          patient: patient
+            ? {
+                name: patient.full_name || patient.email || 'Patient',
+                email: patient.email,
+              }
+            : undefined,
           diagnosis: normalizeSingleRelation(
             item.diagnosis as BaseReportDiagnosis | BaseReportDiagnosis[] | null | undefined,
           ),
@@ -126,6 +163,8 @@ export default function AdminReports() {
         createdAt: report.created_at,
         status: report.status,
         patientId: report.patient_id,
+        patientName: report.patient?.name,
+        reportLabel: report.label,
         riskLevel: report.diagnosis?.risk_level,
         confidence: report.diagnosis?.confidence,
         details: report.diagnosis?.details,
@@ -188,7 +227,10 @@ export default function AdminReports() {
   };
 
   const filteredReports = reports.filter(report =>
+    report.label.toLowerCase().includes(search.toLowerCase()) ||
     report.file_name.toLowerCase().includes(search.toLowerCase()) ||
+    report.patient?.name.toLowerCase().includes(search.toLowerCase()) ||
+    report.patient?.email?.toLowerCase().includes(search.toLowerCase()) ||
     report.id.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -234,7 +276,11 @@ export default function AdminReports() {
                         <FileText className="h-5 w-5 text-primary" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-medium truncate max-w-[170px] sm:max-w-[280px]" title={report.file_name}>{report.file_name}</p>
+                        <p className="font-medium truncate max-w-[170px] sm:max-w-[280px]" title={report.label}>{report.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {report.patient?.name || 'Unknown patient'}
+                          {report.patient?.email ? ` • ${report.patient.email}` : ''}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           ID: {report.id.slice(0, 8)}... • {new Date(report.created_at).toLocaleDateString()}
                         </p>
@@ -270,7 +316,7 @@ export default function AdminReports() {
       <Dialog open={!!selectedReport} onOpenChange={(open) => !open && closeSelectedReport()}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Report Details</DialogTitle>
+            <DialogTitle>{selectedReport?.label || 'Report Details'}</DialogTitle>
           </DialogHeader>
 
           {selectedReport && (
@@ -288,10 +334,29 @@ export default function AdminReports() {
                 <div className="rounded-xl border bg-card p-4 space-y-4">
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Patient ID
+                      Patient
                     </p>
-                    <p className="mt-2 break-all text-sm text-foreground">
-                      {selectedReport.patient_id}
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {selectedReport.patient?.name || 'Unknown patient'}
+                    </p>
+                    {selectedReport.patient?.email && (
+                      <p className="mt-1 break-all text-xs text-muted-foreground">
+                        {selectedReport.patient.email}
+                      </p>
+                    )}
+                    <p className="mt-1 break-all text-xs text-muted-foreground">
+                      ID: {selectedReport.patient_id}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Report
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {selectedReport.label}
+                    </p>
+                    <p className="mt-1 break-all text-xs text-muted-foreground">
+                      Original file: {selectedReport.file_name}
                     </p>
                   </div>
                   <div>

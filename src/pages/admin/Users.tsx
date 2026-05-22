@@ -33,6 +33,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { adminCreateUser } from '@/lib/mriAnalysis';
 import { formatConsultationFee, formatRating } from '@/lib/doctorProfiles';
 import { getPrescriptionMedicineLines } from '@/lib/prescriptions';
+import { buildSequenceMap, formatReportLabel } from '@/lib/caseLabels';
 
 type AppRole = 'patient' | 'doctor' | 'admin';
 
@@ -107,6 +108,7 @@ interface UploadHistory {
   file_url: string;
   status: string | null;
   created_at: string;
+  label?: string;
 }
 
 interface PrescriptionHistory {
@@ -117,7 +119,10 @@ interface PrescriptionHistory {
   notes: string | null;
   created_at: string;
   doctor_name: string | null;
+  doctor_email?: string | null;
   patient_name: string | null;
+  patient_email?: string | null;
+  report_label?: string | null;
 }
 
 export default function AdminUsers() {
@@ -316,38 +321,61 @@ export default function AdminUsers() {
       try {
         const { data: prescriptions, error: prescError } = await supabase
           .from('prescriptions')
-          .select(`
-            id,
-            medicine,
-            dosage,
-            instructions,
-            notes,
-            created_at,
-            diagnosis:diagnosis_id (
-              report:report_id (
-                patient:patient_id (
-                  full_name
-                )
-              )
-            )
-          `)
+          .select('id, diagnosis_id, medicine, dosage, instructions, notes, created_at')
           .eq('doctor_id', user.id)
           .order('created_at', { ascending: false });
 
         if (prescError) {
           console.error('Error fetching prescription history:', prescError);
         } else if (prescriptions) {
+          const diagnosisIds = [...new Set(prescriptions.map((item) => item.diagnosis_id).filter(Boolean))];
+          const { data: diagnoses } = diagnosisIds.length
+            ? await supabase.from('diagnosis').select('id, report_id').in('id', diagnosisIds)
+            : { data: [] };
+          const reportIds = [...new Set((diagnoses ?? []).map((item) => item.report_id).filter(Boolean))];
+          const { data: reports } = reportIds.length
+            ? await supabase.from('mri_reports').select('id, patient_id, created_at').in('id', reportIds)
+            : { data: [] };
+          const patientIds = [...new Set((reports ?? []).map((report) => report.patient_id).filter(Boolean))];
+          const { data: patients } = patientIds.length
+            ? await supabase.from('profiles').select('id, full_name, email').in('id', patientIds)
+            : { data: [] };
+          const diagnosisMap = new Map((diagnoses ?? []).map((item) => [item.id, item]));
+          const reportMap = new Map((reports ?? []).map((item) => [item.id, item]));
+          const patientMap = new Map((patients ?? []).map((item) => [item.id, item]));
+          const reportSequencesByPatient = new Map<string, Map<string, number>>();
+
+          for (const patientId of patientIds) {
+            reportSequencesByPatient.set(
+              patientId,
+              buildSequenceMap((reports ?? []).filter((report) => report.patient_id === patientId)),
+            );
+          }
+
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const formattedPrescriptions = prescriptions.map((p: any) => ({
-            id: p.id,
-            medicine: p.medicine,
-            dosage: p.dosage,
-            instructions: p.instructions,
-            notes: p.notes,
-            created_at: p.created_at,
-            doctor_name: null,
-            patient_name: p.diagnosis?.report?.patient?.full_name || 'Unknown',
-          }));
+          const formattedPrescriptions = prescriptions.map((p: any) => {
+            const diagnosis = diagnosisMap.get(p.diagnosis_id);
+            const report = diagnosis?.report_id ? reportMap.get(diagnosis.report_id) : undefined;
+            const patient = report?.patient_id ? patientMap.get(report.patient_id) : undefined;
+            return {
+              id: p.id,
+              medicine: p.medicine,
+              dosage: p.dosage,
+              instructions: p.instructions,
+              notes: p.notes,
+              created_at: p.created_at,
+              doctor_name: null,
+              patient_name: patient?.full_name || patient?.email || 'Unknown',
+              patient_email: patient?.email,
+              report_label: report
+                ? formatReportLabel({
+                    patientName: patient?.full_name,
+                    patientEmail: patient?.email,
+                    reportNumber: reportSequencesByPatient.get(report.patient_id)?.get(report.id),
+                  })
+                : null,
+            };
+          });
           setPrescriptionHistory(formattedPrescriptions);
         }
       } finally {
@@ -369,50 +397,75 @@ export default function AdminUsers() {
         if (uploadError) {
           console.error('Error fetching upload history:', uploadError);
         } else if (uploads) {
-          setUploadHistory(uploads);
+          const uploadSequenceMap = buildSequenceMap(uploads);
+          setUploadHistory(
+            uploads.map((upload) => ({
+              ...upload,
+              label: formatReportLabel({
+                patientName: user.full_name,
+                patientEmail: user.email,
+                reportNumber: uploadSequenceMap.get(upload.id),
+              }),
+            })),
+          );
         }
 
         // Fetch prescription history for patient
         const { data: prescriptions, error: prescError } = await supabase
           .from('prescriptions')
-          .select(`
-            id,
-            medicine,
-            dosage,
-            instructions,
-            notes,
-            created_at,
-            doctor:doctor_id (
-              full_name
-            ),
-            diagnosis:diagnosis_id (
-              report:report_id (
-                patient_id
-              )
-            )
-          `)
+          .select('id, diagnosis_id, doctor_id, medicine, dosage, instructions, notes, created_at')
           .order('created_at', { ascending: false });
 
         if (prescError) {
           console.error('Error fetching prescription history:', prescError);
         } else if (prescriptions) {
-          // Filter prescriptions for this patient
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const patientPrescriptions = prescriptions.filter((p: any) => 
-            p.diagnosis?.report?.patient_id === user.id
-          );
+          const diagnosisIds = [...new Set(prescriptions.map((item) => item.diagnosis_id).filter(Boolean))];
+          const { data: diagnoses } = diagnosisIds.length
+            ? await supabase.from('diagnosis').select('id, report_id').in('id', diagnosisIds)
+            : { data: [] };
+          const reportIds = [...new Set((diagnoses ?? []).map((item) => item.report_id).filter(Boolean))];
+          const { data: reports } = reportIds.length
+            ? await supabase.from('mri_reports').select('id, patient_id, created_at').in('id', reportIds)
+            : { data: [] };
+          const doctorIds = [...new Set(prescriptions.map((item) => item.doctor_id).filter(Boolean))];
+          const { data: doctors } = doctorIds.length
+            ? await supabase.from('profiles').select('id, full_name, email').in('id', doctorIds)
+            : { data: [] };
+          const diagnosisMap = new Map((diagnoses ?? []).map((item) => [item.id, item]));
+          const reportMap = new Map((reports ?? []).map((item) => [item.id, item]));
+          const doctorMap = new Map((doctors ?? []).map((item) => [item.id, item]));
+          const patientReports = (reports ?? []).filter((report) => report.patient_id === user.id);
+          const reportSequenceMap = buildSequenceMap(patientReports);
+          const patientPrescriptions = prescriptions.filter((p) => {
+            const diagnosis = diagnosisMap.get(p.diagnosis_id);
+            const report = diagnosis?.report_id ? reportMap.get(diagnosis.report_id) : undefined;
+            return report?.patient_id === user.id;
+          });
           
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const formattedPrescriptions = patientPrescriptions.map((p: any) => ({
-            id: p.id,
-            medicine: p.medicine,
-            dosage: p.dosage,
-            instructions: p.instructions,
-            notes: p.notes,
-            created_at: p.created_at,
-            doctor_name: p.doctor?.full_name || 'Unknown',
-            patient_name: null,
-          }));
+          const formattedPrescriptions = patientPrescriptions.map((p: any) => {
+            const diagnosis = diagnosisMap.get(p.diagnosis_id);
+            const report = diagnosis?.report_id ? reportMap.get(diagnosis.report_id) : undefined;
+            const doctor = p.doctor_id ? doctorMap.get(p.doctor_id) : undefined;
+            return {
+              id: p.id,
+              medicine: p.medicine,
+              dosage: p.dosage,
+              instructions: p.instructions,
+              notes: p.notes,
+              created_at: p.created_at,
+              doctor_name: doctor?.full_name || doctor?.email || 'Unknown',
+              doctor_email: doctor?.email,
+              patient_name: null,
+              report_label: report
+                ? formatReportLabel({
+                    patientName: user.full_name,
+                    patientEmail: user.email,
+                    reportNumber: reportSequenceMap.get(report.id),
+                  })
+                : null,
+            };
+          });
           setPrescriptionHistory(formattedPrescriptions);
         }
       } finally {
@@ -1142,8 +1195,11 @@ export default function AdminUsers() {
                     <div className="space-y-2">
                       {uploadHistory.map((upload) => (
                         <div key={upload.id} className="p-3 rounded-lg border bg-card">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="text-sm font-medium">{upload.file_name}</span>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{upload.label || upload.file_name}</p>
+                              <p className="truncate text-xs text-muted-foreground">Original file: {upload.file_name}</p>
+                            </div>
                             <Badge variant={upload.status === 'completed' ? 'default' : 'outline'}>
                               {upload.status || 'pending'}
                             </Badge>
@@ -1178,8 +1234,44 @@ export default function AdminUsers() {
                         const medicineLines = getPrescriptionMedicineLines(prescription);
 
                         return (
-                          <div key={prescription.id} className="p-3 rounded-lg border bg-card">
-                            <div className="mb-2 space-y-2">
+                          <div key={prescription.id} className="space-y-3 rounded-lg border bg-card p-3">
+                            <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 text-sm md:grid-cols-3">
+                              <div className="min-w-0">
+                                <p className="text-xs text-muted-foreground">Report</p>
+                                <p className="truncate font-medium">
+                                  {prescription.report_label || 'MRI report'}
+                                </p>
+                              </div>
+                              {prescription.patient_name && (
+                                <div className="min-w-0">
+                                  <p className="text-xs text-muted-foreground">Patient</p>
+                                  <p className="truncate font-medium">{prescription.patient_name}</p>
+                                  {prescription.patient_email && (
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {prescription.patient_email}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              {prescription.doctor_name && (
+                                <div className="min-w-0">
+                                  <p className="text-xs text-muted-foreground">Doctor</p>
+                                  <p className="truncate font-medium">Dr. {prescription.doctor_name}</p>
+                                  {prescription.doctor_email && (
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {prescription.doctor_email}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-xs text-muted-foreground">Prescribed</p>
+                                <p className="truncate font-medium">
+                                  {new Date(prescription.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
                               {medicineLines.map((medicine, index) => (
                                 <div key={`${medicine.name}-${index}`} className="rounded border p-2">
                                   <p className="text-sm font-medium">
@@ -1196,25 +1288,10 @@ export default function AdminUsers() {
                               ))}
                             </div>
                             {prescription.notes && (
-                              <p className="text-xs text-muted-foreground mb-1">
+                              <p className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
                                 <span className="font-medium">Notes:</span> {prescription.notes}
                               </p>
                             )}
-                            <div className="flex justify-between items-center mt-2 pt-2 border-t">
-                              {prescription.doctor_name && (
-                                <span className="text-xs text-muted-foreground">
-                                  Dr. {prescription.doctor_name}
-                                </span>
-                              )}
-                              {prescription.patient_name && (
-                                <span className="text-xs text-muted-foreground">
-                                  Patient: {prescription.patient_name}
-                                </span>
-                              )}
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(prescription.created_at).toLocaleDateString()}
-                              </span>
-                            </div>
                           </div>
                         );
                       })}
