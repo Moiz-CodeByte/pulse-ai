@@ -271,7 +271,7 @@ export default function DoctorCompleteProfile() {
           : 'Your profile is complete. Please wait for admin verification to access all features.',
       });
 
-      navigate('/doctor');
+      navigate(isVerified ? '/doctor' : '/doctor/admin-chat');
     } catch (error) {
       toast({
         title: 'Error',

@@ -270,7 +270,7 @@ export function formatConsultationFee(fee?: number): string {
 
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'pkr',
     maximumFractionDigits: 0,
   }).format(fee);
 }

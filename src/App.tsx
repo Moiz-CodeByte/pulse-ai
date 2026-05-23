@@ -28,6 +28,7 @@ import DoctorPrescriptions from "./pages/doctor/Prescriptions";
 import DoctorCompleteProfile from "./pages/doctor/CompleteProfile";
 import DoctorConsultationRequests from "./pages/doctor/ConsultationRequests";
 import DoctorChat from "./pages/doctor/Chat";
+import AdminDoctorChat from "./pages/support/AdminDoctorChat";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -144,6 +145,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/doctor/admin-chat"
+              element={
+                <ProtectedRoute allowedRoles={['doctor']}>
+                  <AdminDoctorChat />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Admin Routes */}
             <Route
@@ -183,6 +192,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AdminSettings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/support-chat"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminDoctorChat />
                 </ProtectedRoute>
               }
             />

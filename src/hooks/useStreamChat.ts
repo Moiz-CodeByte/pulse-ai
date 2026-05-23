@@ -1,20 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { StreamChat, type OwnUserResponse } from 'stream-chat';
 import { useAuth } from '@/hooks/useAuth';
+import { buildApiUrl, createNetworkError, getApiBaseUrl } from '@/lib/apiBase';
 
-const DEFAULT_FLASK_BASE = 'http://localhost:5000';
-
-function normalizeApiUrl(value: string | undefined): string {
-  const cleaned = (value || DEFAULT_FLASK_BASE)
-    .trim()
-    .replace(/^["']+|["']+$/g, '')
-    .replace(/^https:\/(?!\/)/i, 'https://')
-    .replace(/^http:\/(?!\/)/i, 'http://');
-
-  return cleaned.replace(/\/+$/, '');
-}
-
-const FLASK_BASE = normalizeApiUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL);
+const FLASK_BASE = getApiBaseUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL);
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY ?? '';
 
 export interface StreamChatState {
@@ -49,7 +38,8 @@ export function useStreamChat(): StreamChatState {
           clientRef.current = null;
         }
 
-        const res = await fetch(`${FLASK_BASE}/stream/token`, {
+        const endpoint = buildApiUrl('/stream/token', FLASK_BASE);
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -57,6 +47,8 @@ export function useStreamChat(): StreamChatState {
             user_name: user!.email ?? user!.id,
             user_role: userRole ?? 'patient',
           }),
+        }).catch((fetchError) => {
+          throw createNetworkError(endpoint, fetchError);
         });
 
         if (!res.ok) {
@@ -130,10 +122,13 @@ export async function createConsultationChannel(params: {
     report_download_url?: string | null;
   };
 }): Promise<string> {
-  const res = await fetch(`${FLASK_BASE}/stream/create-channel`, {
+  const endpoint = buildApiUrl('/stream/create-channel', FLASK_BASE);
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
+  }).catch((fetchError) => {
+    throw createNetworkError(endpoint, fetchError);
   });
 
   if (!res.ok) {
@@ -143,4 +138,59 @@ export async function createConsultationChannel(params: {
 
   const { channel_id } = await res.json();
   return channel_id as string;
+}
+
+export async function createDoctorAdminSupportChannel(params: {
+  doctor_id: string;
+  doctor_name: string;
+  doctor_email?: string | null;
+  admins: Array<{
+    id: string;
+    name?: string | null;
+    email?: string | null;
+  }>;
+}): Promise<string> {
+  const endpoint = buildApiUrl('/stream/create-support-channel', FLASK_BASE);
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  }).catch((fetchError) => {
+    throw createNetworkError(endpoint, fetchError);
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? 'Failed to create Stream support channel');
+  }
+
+  const { channel_id } = await res.json();
+  return channel_id as string;
+}
+
+export async function ensureStreamUsers(users: Array<{
+  id: string;
+  name?: string | null;
+  role?: string | null;
+}>): Promise<void> {
+  await Promise.all(
+    users
+      .filter((user) => user.id)
+      .map(async (user) => {
+        const res = await fetch(`${FLASK_BASE}/stream/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            user_name: user.name || user.id,
+            user_role: user.role || 'user',
+          }),
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `Failed to create Stream user ${user.id}`);
+        }
+      }),
+  );
 }

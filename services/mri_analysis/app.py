@@ -571,5 +571,92 @@ def create_stream_channel() -> Any:
     return jsonify({'channel_id': channel_id, 'api_key': os.getenv('STREAM_API_KEY', '')})
 
 
+@app.post('/stream/create-support-channel')
+def create_stream_support_channel() -> Any:
+    """Create (or retrieve) a Stream channel for doctor-admin verification support."""
+    if not stream_client:
+        return jsonify({'error': 'Stream chat is not configured.'}), 503
+
+    data = request.get_json()
+    doctor_id = as_clean_string((data or {}).get('doctor_id'))
+    doctor_name = as_clean_string((data or {}).get('doctor_name'), 'Doctor') or 'Doctor'
+    doctor_email = as_clean_string((data or {}).get('doctor_email'))
+    admins = (data or {}).get('admins', [])
+
+    if not doctor_id:
+        return jsonify({'error': 'doctor_id is required'}), 400
+    if not isinstance(admins, list) or not admins:
+        return jsonify({'error': 'at least one admin is required'}), 400
+
+    admin_users = []
+    for admin in admins:
+        if not isinstance(admin, dict):
+            continue
+        admin_id = as_clean_string(admin.get('id'))
+        if not admin_id:
+            continue
+        admin_name = as_clean_string(admin.get('name')) or as_clean_string(admin.get('email')) or 'Admin'
+        admin_users.append({
+            'id': admin_id,
+            'name': admin_name,
+            'role': 'user',
+            'app_role': 'admin',
+        })
+
+    if not admin_users:
+        return jsonify({'error': 'at least one valid admin is required'}), 400
+
+    channel_id = f'doctor-admin-support-{doctor_id}'
+    members = [
+        {
+            'id': doctor_id,
+            'name': doctor_name,
+            'role': 'user',
+            'app_role': 'doctor',
+        },
+        *admin_users,
+    ]
+    member_ids = [member['id'] for member in members]
+
+    try:
+        stream_client.update_users(members)
+    except Exception as exc:
+        print(f'[Stream] support update_users failed: {exc}')
+        return jsonify({'error': f'Failed to create support chat users: {exc}'}), 500
+
+    try:
+        channel = stream_client.channel(
+            'messaging',
+            channel_id,
+            {
+                'members': member_ids,
+                'name': f'{doctor_name} verification support',
+                'support_type': 'doctor_verification',
+                'support_doctor_id': doctor_id,
+                'support_doctor_name': doctor_name,
+                'support_doctor_email': doctor_email,
+            },
+        )
+        try:
+            channel.create(doctor_id)
+        except Exception as create_exc:
+            print(f'[Stream] support channel.create skipped or failed: {create_exc}')
+        try:
+            channel.update({
+                'name': f'{doctor_name} verification support',
+                'support_type': 'doctor_verification',
+                'support_doctor_id': doctor_id,
+                'support_doctor_name': doctor_name,
+                'support_doctor_email': doctor_email,
+            })
+        except Exception as update_exc:
+            print(f'[Stream] support channel.update failed: {update_exc}')
+    except Exception as exc:
+        print(f'[Stream] support channel.create failed: {exc}')
+        return jsonify({'error': f'Failed to create Stream support channel: {exc}'}), 500
+
+    return jsonify({'channel_id': channel_id, 'api_key': os.getenv('STREAM_API_KEY', '')})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('MRI_ANALYSIS_PORT', '5000')), debug=False)

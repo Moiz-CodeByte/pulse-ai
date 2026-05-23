@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { UserCheck, Check, X, Stethoscope } from 'lucide-react';
+import { UserCheck, Check, X, Stethoscope, Eye } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { DoctorProfileReviewDialog } from '@/components/admin/DoctorProfileReviewDialog';
 
 interface PendingDoctor {
   user_id: string;
@@ -20,6 +21,7 @@ export default function AdminVerifyDoctors() {
   const { toast } = useToast();
   const [pendingDoctors, setPendingDoctors] = useState<PendingDoctor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reviewDoctor, setReviewDoctor] = useState<PendingDoctor | null>(null);
 
   useEffect(() => {
     fetchPendingDoctors();
@@ -129,7 +131,7 @@ export default function AdminVerifyDoctors() {
               {pendingDoctors.map((doctor) => (
                 <div
                   key={doctor.user_id}
-                  className="flex items-center justify-between p-6 rounded-xl border bg-card"
+                  className="flex flex-col gap-4 rounded-xl border bg-card p-4 sm:p-6 lg:flex-row lg:items-center lg:justify-between"
                 >
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-primary/10">
@@ -149,10 +151,18 @@ export default function AdminVerifyDoctors() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <Badge variant="outline" className="text-warning border-warning">
                       Pending Review
                     </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setReviewDoctor(doctor)}
+                    >
+                      <Eye className="h-4 w-4 mr-1" />
+                      Review Profile
+                    </Button>
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -176,6 +186,20 @@ export default function AdminVerifyDoctors() {
           )}
         </CardContent>
       </Card>
+      <DoctorProfileReviewDialog
+        doctor={
+          reviewDoctor
+            ? {
+                id: reviewDoctor.user_id,
+                full_name: reviewDoctor.profile?.full_name,
+                email: reviewDoctor.profile?.email,
+                created_at: reviewDoctor.profile?.created_at,
+              }
+            : null
+        }
+        open={!!reviewDoctor}
+        onOpenChange={(open) => !open && setReviewDoctor(null)}
+      />
     </DashboardLayout>
   );
 }

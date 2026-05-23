@@ -16,7 +16,7 @@ interface DashboardSidebarProps {
 }
 
 export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSidebarProps) {
-  const { userRole } = useAuth();
+  const { userRole, isVerified } = useAuth();
   const location = useLocation();
 
   const getNavItems = (): NavItem[] => {
@@ -30,6 +30,13 @@ export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSid
           { title: 'Prescriptions', href: '/patient/prescriptions', icon: ClipboardList },
         ];
       case 'doctor':
+        if (!isVerified) {
+          return [
+            { title: 'Admin Chat', href: '/doctor/admin-chat', icon: MessageSquare },
+            { title: 'My Profile', href: '/doctor/complete-profile', icon: Settings },
+          ];
+        }
+
         return [
           { title: 'Dashboard', href: '/doctor', icon: LayoutDashboard },
           { title: 'Patient Cases', href: '/doctor/cases', icon: Users },
@@ -43,6 +50,7 @@ export function DashboardSidebar({ isCollapsed, onToggleCollapse }: DashboardSid
           { title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
           { title: 'All Users', href: '/admin/users', icon: Users },
           { title: 'Doctor Verification', href: '/admin/verify-doctors', icon: UserCheck },
+          { title: 'Doctor Chats', href: '/admin/support-chat', icon: MessageSquare },
           { title: 'All Reports', href: '/admin/reports', icon: FileText },
           { title: 'Settings', href: '/admin/settings', icon: Settings },
         ];

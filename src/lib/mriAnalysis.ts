@@ -1,4 +1,5 @@
 export type RiskLevel = 'low' | 'medium' | 'high';
+import { buildApiUrl, createNetworkError, getApiBaseUrl } from '@/lib/apiBase';
 
 export interface RankedResult {
   label: string;
@@ -21,22 +22,7 @@ export interface MRIAnalysisResult {
   persistenceMessage: string | null;
 }
 
-const DEFAULT_MRI_ANALYSIS_API_URL = 'http://127.0.0.1:5000';
-
-function normalizeApiUrl(url: string): string {
-  // Remove quotes and whitespace
-  url = url.trim().replace(/^["']+|["']+$/g, '');
-  
-  // Ensure URL has a protocol
-  // if (!url.match(/^https?:\/\//)) {
-  //   url = 'http://' + url;
-  // }
-  
-  // Remove trailing slash
-  return url.replace(/\/$/, '');
-}
-
-const MRI_ANALYSIS_API_URL = normalizeApiUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL || DEFAULT_MRI_ANALYSIS_API_URL);
+const MRI_ANALYSIS_API_URL = getApiBaseUrl(import.meta.env.VITE_MRI_ANALYSIS_API_URL);
 
 // Debug logging in development
 if (import.meta.env.DEV) {
@@ -49,9 +35,12 @@ export async function analyzeMRI(file: File, reportId: string): Promise<MRIAnaly
   formData.append('mri_image', file);
   formData.append('report_id', reportId);
 
-  const response = await fetch(`${MRI_ANALYSIS_API_URL}/analyze`, {
+  const endpoint = buildApiUrl('/analyze', MRI_ANALYSIS_API_URL);
+  const response = await fetch(endpoint, {
     method: 'POST',
     body: formData,
+  }).catch((fetchError) => {
+    throw createNetworkError(endpoint, fetchError);
   });
 
   const responseBody = await response.json().catch(() => null);
@@ -79,12 +68,15 @@ export interface CreateUserResponse {
 }
 
 export async function adminCreateUser(userData: CreateUserData): Promise<CreateUserResponse> {
-  const response = await fetch(`${MRI_ANALYSIS_API_URL}/admin/create-user`, {
+  const endpoint = buildApiUrl('/admin/create-user', MRI_ANALYSIS_API_URL);
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(userData),
+  }).catch((fetchError) => {
+    throw createNetworkError(endpoint, fetchError);
   });
 
   const responseBody = await response.json().catch(() => null);

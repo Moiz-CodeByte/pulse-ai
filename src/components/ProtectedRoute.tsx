@@ -99,14 +99,19 @@ export function ProtectedRoute({ children, allowedRoles, requireVerified = false
           <p className="text-muted-foreground mb-6">
             Your account is awaiting admin verification. You'll be notified once your account has been approved.
           </p>
-          <Button 
-            variant="outline" 
-            onClick={handleSignOut}
-            className="gap-2"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <Button onClick={() => navigate('/doctor/admin-chat')}>
+              Chat with Admins
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleSignOut}
+              className="gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
         </div>
       </div>
     );
