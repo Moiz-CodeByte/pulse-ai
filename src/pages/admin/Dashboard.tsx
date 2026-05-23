@@ -20,6 +20,12 @@ interface UserWithRole {
   };
 }
 
+interface UserRoleRow {
+  user_id: string;
+  role: string;
+  verified: boolean | null;
+}
+
 export default function AdminDashboard() {
   const { toast } = useToast();
   const [users, setUsers] = useState<UserWithRole[]>([]);
@@ -37,18 +43,9 @@ export default function AdminDashboard() {
   }, []);
 
   const fetchData = async () => {
-    // Fetch profiles
-    const { data: profiles, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, created_at')
-      .order('created_at', { ascending: false })
-      .limit(10);
+    setLoading(true);
 
-    if (!error && profiles) {
-      setUsers(profiles);
-    }
-
-    // Fetch user roles for statistics
+    // Fetch user roles first so recent profile cards can show the real role.
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role, verified, user_id');
@@ -64,6 +61,34 @@ export default function AdminDashboard() {
         totalPatients,
         pendingVerifications,
       });
+    }
+
+    // Fetch profiles
+    const { data: profiles, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (!error && profiles) {
+      const rolesMap = new Map(
+        ((roles ?? []) as UserRoleRow[]).map((role) => [role.user_id, role]),
+      );
+
+      setUsers(
+        profiles.map((profile) => {
+          const role = rolesMap.get(profile.id);
+          return {
+            ...profile,
+            user_role: role
+              ? {
+                  role: role.role,
+                  verified: role.verified ?? false,
+                }
+              : undefined,
+          };
+        }),
+      );
     }
 
     setLoading(false);
@@ -147,9 +172,16 @@ export default function AdminDashboard() {
                       <p className="font-medium truncate" title={user.full_name}>{user.full_name}</p>
                       <p className="text-sm text-muted-foreground break-all">{user.email}</p>
                     </div>
-                    <Badge variant="outline" className="self-start sm:self-auto">
-                      {user.user_role?.role || 'patient'}
-                    </Badge>
+                    <div className="flex flex-wrap gap-2 self-start sm:self-auto sm:justify-end">
+                      <Badge variant="outline">
+                        {user.user_role?.role || 'No role'}
+                      </Badge>
+                      {user.user_role?.role === 'doctor' && (
+                        <Badge variant={user.user_role.verified ? 'default' : 'outline'}>
+                          {user.user_role.verified ? 'Verified' : 'Pending'}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
