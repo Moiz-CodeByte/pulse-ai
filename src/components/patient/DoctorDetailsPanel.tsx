@@ -26,9 +26,9 @@ export function DoctorDetailsPanel({ doctor }: DoctorDetailsPanelProps) {
         <div>
           <h3 className="text-lg font-semibold text-foreground">{doctor.fullName}</h3>
           <p className="text-sm text-muted-foreground">{doctor.email}</p>
-          {doctor.bio ? (
+          {/* {doctor.bio ? (
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{doctor.bio}</p>
-          ) : null}
+          ) : null} */}
         </div>
         <div className="grid grid-cols-2 gap-3 sm:min-w-[260px]">
           <div className="rounded-lg border bg-background p-3">

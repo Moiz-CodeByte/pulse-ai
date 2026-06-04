@@ -57,12 +57,18 @@ else:
 CLASS_NAMES = ['NOR', 'DCM', 'MINF', 'RV', 'HCM']
 CLASS_INFO: dict[str, dict[str, str]] = {
     'NOR': {
-        'disease_name': 'Normal Cardiac Pattern',
-        'detail': 'The scan is closest to a normal cardiac MRI pattern among the five trained classes.',
+        'disease_name': 'Normal Cardiac Pattern / Non-Heart Image',
+        'detail': (
+            'The model did not detect one of the trained abnormal cardiac MRI patterns. '
+            'This can mean the scan is closest to a normal cardiac MRI pattern, or the uploaded image is not a heart MRI and is outside the model scope.'
+        ),
         'risk_level': 'low',
         'threat_level': 'Low',
-        'patient_guidance': 'Keep regular checkups and continue a heart-healthy lifestyle, especially if symptoms are absent.',
-        'clinical_priority': 'Routine follow-up',
+        'patient_guidance': (
+            'If this is a cardiac MRI, keep regular checkups and continue a heart-healthy lifestyle. '
+            'If the uploaded image is not of the heart, upload the correct cardiac MRI scan for analysis.'
+        ),
+        'clinical_priority': 'Verify image type, then routine follow-up',
     },
     'DCM': {
         'disease_name': 'Dilated Cardiomyopathy',
