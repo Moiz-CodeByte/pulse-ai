@@ -641,7 +641,7 @@ function PrescriptionDialog({
           <div>
             <Label className="text-xs">Doctor's Notes (optional)</Label>
             <Textarea
-              placeholder="Additional instructions, dietary advice, follow-up notesâ€¦"
+              placeholder="Additional instructions, dietary advice, follow-up notes, etc."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="mt-1 text-sm resize-none"

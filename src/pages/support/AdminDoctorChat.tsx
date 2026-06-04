@@ -34,13 +34,31 @@ interface SupportChannelItem {
   unread: number;
 }
 
-function toMessage(message: any): SharedChatMessage {
+interface StreamMessageLike {
+  id?: string;
+  text?: string;
+  type?: string;
+  created_at?: Date | string;
+  user?: {
+    id?: string;
+    name?: string;
+  };
+}
+
+interface ChannelEventLike {
+  channel?: {
+    type?: string;
+    id?: string;
+  };
+}
+
+function toMessage(message: StreamMessageLike): SharedChatMessage {
   return {
-    id: message.id,
+    id: message.id ?? '',
     text: message.text ?? '',
     userId: message.user?.id ?? '',
     userName: message.user?.name ?? message.user?.id ?? 'Unknown',
-    createdAt: message.created_at instanceof Date ? message.created_at : new Date(message.created_at as string),
+    createdAt: message.created_at instanceof Date ? message.created_at : new Date(message.created_at ?? Date.now()),
     isSystem: message.type === 'system',
   };
 }
@@ -252,8 +270,10 @@ export default function AdminDoctorChat() {
         }
       });
 
-    const onNewMessage = (event: any) => {
-      const channel = event.channel ? client.channel(event.channel.type, event.channel.id) : null;
+    const onNewMessage = (event: ChannelEventLike) => {
+      const eventChannel = event.channel;
+      const channel =
+        eventChannel?.type && eventChannel.id ? client.channel(eventChannel.type, eventChannel.id) : null;
       if (channel) {
         refreshChannelItem(channel);
       }
@@ -327,22 +347,32 @@ export default function AdminDoctorChat() {
       return;
     }
 
+    const shouldAssignToCurrentAdmin = isAdmin && activeItem && !activeItem.assignedAdminId;
+
     setSending(true);
     try {
-      if (isAdmin && activeItem && !activeItem.assignedAdminId) {
-        const profile = await fetchOwnProfile(user.id);
-        const adminName = profile?.full_name || user.email || 'Admin';
-        await activeChannel.updatePartial({
-          set: {
-            assigned_admin_id: user.id,
-            assigned_admin_name: adminName,
-          },
-        });
-      }
-
       await activeChannel.sendMessage({ text: body });
       setText('');
+
+      if (shouldAssignToCurrentAdmin) {
+        try {
+          const profile = await fetchOwnProfile(user.id);
+          const adminName = profile?.full_name || user.email || 'Admin';
+          await activeChannel.updatePartial({
+            set: {
+              assigned_admin_id: user.id,
+              assigned_admin_name: adminName,
+            },
+          });
+        } catch (assignmentError) {
+          console.warn('[AdminDoctorChat] message sent, but support chat assignment failed:', assignmentError);
+        }
+      }
+
       refreshChannelItem(activeChannel);
+    } catch (sendError) {
+      console.error('[AdminDoctorChat] failed to send support message:', sendError);
+      setSetupError(sendError instanceof Error ? sendError.message : 'Failed to send message.');
     } finally {
       setSending(false);
     }
